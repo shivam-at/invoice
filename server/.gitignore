@@ -1,0 +1,6 @@
+node_modules/
+data/
+storage/invoices/*.pdf
+storage/logos/*
+!storage/logos/.gitkeep
+config/*.json
