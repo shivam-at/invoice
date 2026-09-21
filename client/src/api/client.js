@@ -20,7 +20,7 @@ export const CombosApi = {
 };
 
 export const OrdersApi = {
-  list: () => api.get("/orders").then((r) => r.data),
+  list: (params = {}) => api.get("/orders", { params }).then((r) => r.data),
   get: (id) => api.get(`/orders/${id}`).then((r) => r.data),
   create: (data) => api.post("/orders", data).then((r) => r.data),
   identifyCMD: (limit) => api.post("/orders/identify-cmd", { limit }).then((r) => r.data),

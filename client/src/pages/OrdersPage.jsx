@@ -12,8 +12,14 @@ const STATUS_CLASS = {
   FAILED: "badge danger"
 };
 
+const PAGE_SIZE = 50;
+
 export default function OrdersPage() {
   const [orders, setOrders] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
   const [stats, setStats] = useState(null);
   const [error, setError] = useState("");
   const [running, setRunning] = useState(false);
@@ -38,15 +44,29 @@ export default function OrdersPage() {
   const [importResult, setImportResult] = useState(null);
 
   const load = () => {
-    OrdersApi.list().then(setOrders).catch((e) => setError(e.response?.data?.error || e.message));
+    OrdersApi.list({ search, page, pageSize: PAGE_SIZE })
+      .then((res) => {
+        setOrders(res.items);
+        setTotal(res.total);
+      })
+      .catch((e) => setError(e.response?.data?.error || e.message));
     StatsApi.get().then(setStats).catch(() => {});
   };
+
+  // Debounce the search box so we don't fire a request per keystroke.
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      setPage(1);
+      setSearch(searchInput);
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [searchInput]);
 
   useEffect(() => {
     load();
     const handle = setInterval(load, 3000);
     return () => clearInterval(handle);
-  }, []);
+  }, [search, page]);
 
   useEffect(() => {
     try {
@@ -175,7 +195,16 @@ export default function OrdersPage() {
       )}
 
       <div className="card">
-        <table>
+        <div className="row between">
+          <h3 style={{ margin: 0 }}>All Orders ({total.toLocaleString()})</h3>
+          <input
+            style={{ maxWidth: 280 }}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Search by order no or customer..."
+          />
+        </div>
+        <table style={{ marginTop: 14 }}>
           <thead>
             <tr>
               <th>Order No</th>
@@ -202,12 +231,27 @@ export default function OrdersPage() {
             {orders.length === 0 && (
               <tr>
                 <td colSpan={5} className="muted">
-                  No orders yet.
+                  {search ? "No orders match your search." : "No orders yet."}
                 </td>
               </tr>
             )}
           </tbody>
         </table>
+        <div className="pagination">
+          <button className="secondary" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
+            Prev
+          </button>
+          <span className="muted">
+            Page {page} of {Math.max(1, Math.ceil(total / PAGE_SIZE))}
+          </span>
+          <button
+            className="secondary"
+            onClick={() => setPage((p) => Math.min(Math.ceil(total / PAGE_SIZE) || 1, p + 1))}
+            disabled={page >= Math.ceil(total / PAGE_SIZE)}
+          >
+            Next
+          </button>
+        </div>
       </div>
     </div>
   );

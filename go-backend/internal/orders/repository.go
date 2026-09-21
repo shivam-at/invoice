@@ -138,10 +138,34 @@ func (r *Repository) GetOrderExtraItems(ctx context.Context, orderID int64) ([]m
 	return items, nil
 }
 
-func (r *Repository) ListOrders(ctx context.Context, limit int) ([]models.Order, error) {
-	rows, err := r.pool.Query(ctx, `SELECT `+orderColumns+` FROM orders ORDER BY created_at DESC LIMIT $1`, limit)
+type OrderPage struct {
+	Items []models.Order
+	Total int
+}
+
+// ListOrders is paginated (unlike an early version of this that hardcoded
+// LIMIT 200 — with more than 200 orders that silently hid the oldest ones
+// from the Orders page with no indication anything was missing).
+func (r *Repository) ListOrders(ctx context.Context, search string, page, pageSize int) (OrderPage, error) {
+	offset := (page - 1) * pageSize
+	where := ""
+	args := []any{}
+	if search != "" {
+		where = "WHERE order_no ILIKE $1 OR customer_name ILIKE $1"
+		args = append(args, "%"+search+"%")
+	}
+
+	var total int
+	if err := r.pool.QueryRow(ctx, `SELECT count(*) FROM orders `+where, args...).Scan(&total); err != nil {
+		return OrderPage{}, err
+	}
+
+	args = append(args, pageSize, offset)
+	query := fmt.Sprintf(`SELECT %s FROM orders %s ORDER BY created_at DESC LIMIT $%d OFFSET $%d`,
+		orderColumns, where, len(args)-1, len(args))
+	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, err
+		return OrderPage{}, err
 	}
 	defer rows.Close()
 
@@ -151,11 +175,11 @@ func (r *Repository) ListOrders(ctx context.Context, limit int) ([]models.Order,
 	for rows.Next() {
 		o, err := scanOrder(rows)
 		if err != nil {
-			return nil, err
+			return OrderPage{}, err
 		}
 		out = append(out, o)
 	}
-	return out, nil
+	return OrderPage{Items: out, Total: total}, nil
 }
 
 // ClaimCMDOrders atomically selects up to `limit` PENDING CMD orders and

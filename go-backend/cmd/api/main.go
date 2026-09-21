@@ -160,12 +160,14 @@ func (a *api) createOrder(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *api) listOrders(w http.ResponseWriter, r *http.Request) {
-	list, err := a.repo.ListOrders(r.Context(), 200)
+	page, pageSize := parsePageParams(r, 50)
+	search := r.URL.Query().Get("search")
+	result, err := a.repo.ListOrders(r.Context(), search, page, pageSize)
 	if err != nil {
 		httpError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, list)
+	writeJSON(w, http.StatusOK, map[string]any{"items": result.Items, "total": result.Total, "page": page, "pageSize": pageSize})
 }
 
 func (a *api) getOrderPDF(w http.ResponseWriter, r *http.Request) {
