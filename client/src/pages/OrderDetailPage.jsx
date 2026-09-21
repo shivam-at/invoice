@@ -8,7 +8,9 @@ export default function OrderDetailPage() {
   const { id } = useParams();
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
+  const [printUrl, setPrintUrl] = useState(null);
   const intervalRef = useRef(null);
+  const printFrameRef = useRef(null);
 
   useEffect(() => {
     const load = () => {
@@ -28,6 +30,31 @@ export default function OrderDetailPage() {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [id]);
+
+  // Loads the PDF into a hidden iframe and, once it's actually rendered,
+  // triggers the browser's native print dialog on it — that dialog is what
+  // lets the user pick which installed printer to send it to (or save as
+  // PDF), rather than just downloading the file.
+  const handlePrint = () => {
+    setPrintUrl(OrdersApi.pdfUrl(id) + `?t=${Date.now()}`);
+  };
+
+  useEffect(() => {
+    if (!printUrl || !printFrameRef.current) return;
+    const iframe = printFrameRef.current;
+    const onLoad = () => {
+      try {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+      } catch (_) {
+        // Some browsers block scripted printing of cross-origin/plugin-rendered
+        // PDFs — falling back to just opening it is still better than nothing.
+        window.open(OrdersApi.pdfUrl(id), "_blank");
+      }
+    };
+    iframe.addEventListener("load", onLoad);
+    return () => iframe.removeEventListener("load", onLoad);
+  }, [printUrl, id]);
 
   if (error) return <div className="alert error">{error}</div>;
   if (!data) return <p className="muted">Loading...</p>;
@@ -54,12 +81,27 @@ export default function OrderDetailPage() {
             )}
           </div>
           {invoice && (
-            <a href={OrdersApi.pdfUrl(order.id)} target="_blank" rel="noreferrer">
-              <button>Download Invoice PDF</button>
-            </a>
+            <div className="row">
+              <button onClick={handlePrint}>Print Invoice</button>
+              <a href={OrdersApi.pdfUrl(order.id)} target="_blank" rel="noreferrer">
+                <button className="secondary">Download Invoice PDF</button>
+              </a>
+            </div>
           )}
         </div>
       </div>
+
+      {printUrl && (
+        <iframe
+          ref={printFrameRef}
+          src={printUrl}
+          title="print-invoice"
+          // Chrome's PDF viewer won't render (and so can't print) inside a
+          // display:none iframe — position it off-screen instead so it
+          // still lays out normally.
+          style={{ position: "fixed", top: 0, left: "-9999px", width: "600px", height: "800px", border: 0 }}
+        />
+      )}
 
       {extraItems.length > 0 && (
         <div className="card">
