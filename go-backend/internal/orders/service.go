@@ -7,6 +7,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
+	"invoice-system/internal/catalog"
 	"invoice-system/internal/idempotency"
 	"invoice-system/internal/models"
 	"invoice-system/internal/queue"
@@ -63,4 +64,8 @@ func (s *Service) IdentifyAndEnqueueCMDOrders(ctx context.Context, limit int) (i
 
 func (s *Service) CountByStatus(ctx context.Context, status string) (int, error) {
 	return s.repo.CountByStatus(ctx, status)
+}
+
+func (s *Service) ImportOrdersFromRows(ctx context.Context, rows [][]string, catalogRepo *catalog.Repository, limit int) (OrderImportResult, error) {
+	return s.repo.ImportOrdersFromRows(ctx, rows, catalogRepo, s.invoiceQ, limit)
 }

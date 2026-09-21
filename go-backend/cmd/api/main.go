@@ -65,6 +65,7 @@ func main() {
 	mux.HandleFunc("GET /api/orders/{id}", a.getOrder)
 	mux.HandleFunc("GET /api/orders/{id}/pdf", a.getOrderPDF)
 	mux.HandleFunc("POST /api/orders/identify-cmd", a.identifyCMD)
+	mux.HandleFunc("POST /api/orders/import-google-sheet", a.importOrdersFromSheet)
 	mux.HandleFunc("GET /api/stats", a.stats)
 
 	mux.HandleFunc("GET /api/products", a.listProducts)

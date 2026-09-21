@@ -88,6 +88,45 @@ func (req sheetImportReq) source() string {
 	return req.SheetURL
 }
 
+type orderImportReq struct {
+	SpreadsheetID string `json:"spreadsheet_id"`
+	SheetURL      string `json:"sheet_url"`
+	Range         string `json:"range"`
+	Limit         int    `json:"limit"`
+}
+
+func (req orderImportReq) source() string {
+	if req.SpreadsheetID != "" {
+		return req.SpreadsheetID
+	}
+	return req.SheetURL
+}
+
+func (a *api) importOrdersFromSheet(w http.ResponseWriter, r *http.Request) {
+	var req orderImportReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.source() == "" {
+		httpError(w, http.StatusBadRequest, "spreadsheet_id or sheet_url is required")
+		return
+	}
+	if req.Limit <= 0 {
+		req.Limit = 50
+	}
+	rows, err := sheets.FetchRows(r.Context(), a.googleKeyFile, req.source(), req.Range)
+	if err != nil {
+		httpError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	result, err := a.svc.ImportOrdersFromRows(r.Context(), rows, a.catalogRepo, req.Limit)
+	if err != nil {
+		httpError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"createdCount": len(result.Created), "created": result.Created,
+		"skippedCount": len(result.Skipped), "skipped": result.Skipped,
+	})
+}
+
 func (a *api) importProductsFromSheet(w http.ResponseWriter, r *http.Request) {
 	var req sheetImportReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.source() == "" {
