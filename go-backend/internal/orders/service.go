@@ -66,6 +66,6 @@ func (s *Service) CountByStatus(ctx context.Context, status string) (int, error)
 	return s.repo.CountByStatus(ctx, status)
 }
 
-func (s *Service) ImportOrdersFromRows(ctx context.Context, rows [][]string, catalogRepo *catalog.Repository, limit int) (OrderImportResult, error) {
-	return s.repo.ImportOrdersFromRows(ctx, rows, catalogRepo, s.invoiceQ, limit)
+func (s *Service) ImportOrdersFromRows(ctx context.Context, rows [][]string, catalogRepo *catalog.Repository, offset, limit int) (OrderImportResult, error) {
+	return s.repo.ImportOrdersFromRows(ctx, rows, catalogRepo, s.invoiceQ, offset, limit)
 }

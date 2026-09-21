@@ -92,6 +92,7 @@ type orderImportReq struct {
 	SpreadsheetID string `json:"spreadsheet_id"`
 	SheetURL      string `json:"sheet_url"`
 	Range         string `json:"range"`
+	Offset        int    `json:"offset"`
 	Limit         int    `json:"limit"`
 }
 
@@ -111,12 +112,15 @@ func (a *api) importOrdersFromSheet(w http.ResponseWriter, r *http.Request) {
 	if req.Limit <= 0 {
 		req.Limit = 50
 	}
+	if req.Offset < 0 {
+		req.Offset = 0
+	}
 	rows, err := sheets.FetchRows(r.Context(), a.googleKeyFile, req.source(), req.Range)
 	if err != nil {
 		httpError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	result, err := a.svc.ImportOrdersFromRows(r.Context(), rows, a.catalogRepo, req.Limit)
+	result, err := a.svc.ImportOrdersFromRows(r.Context(), rows, a.catalogRepo, req.Offset, req.Limit)
 	if err != nil {
 		httpError(w, http.StatusBadRequest, err.Error())
 		return
@@ -124,6 +128,7 @@ func (a *api) importOrdersFromSheet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"createdCount": len(result.Created), "created": result.Created,
 		"skippedCount": len(result.Skipped), "skipped": result.Skipped,
+		"totalGroups": result.TotalGroups,
 	})
 }
 

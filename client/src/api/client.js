@@ -24,6 +24,7 @@ export const OrdersApi = {
   get: (id) => api.get(`/orders/${id}`).then((r) => r.data),
   create: (data) => api.post("/orders", data).then((r) => r.data),
   identifyCMD: (limit) => api.post("/orders/identify-cmd", { limit }).then((r) => r.data),
+  importGoogleSheet: (data) => api.post("/orders/import-google-sheet", data).then((r) => r.data),
   pdfUrl: (id) => `/api/orders/${id}/pdf`
 };
 

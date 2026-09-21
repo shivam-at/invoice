@@ -71,15 +71,22 @@ type OrderSkipReason struct {
 }
 
 type OrderImportResult struct {
-	Created []string          `json:"created"`
-	Skipped []OrderSkipReason `json:"skipped"`
+	Created     []string          `json:"created"`
+	Skipped     []OrderSkipReason `json:"skipped"`
+	TotalGroups int               `json:"total_groups"`
 }
 
-// ImportOrdersFromRows groups rows by Display Order Code and creates up to
-// `limit` new orders from groups not already imported (checked by
-// order_no), enqueuing each straight onto the invoice queue so the worker
-// pool picks them up immediately — the same path a UI-created order takes.
-func (r *Repository) ImportOrdersFromRows(ctx context.Context, rows [][]string, catalogRepo *catalog.Repository, invoiceQ *queue.Queue, limit int) (OrderImportResult, error) {
+// ImportOrdersFromRows groups rows by Display Order Code (in the order
+// they first appear in the sheet) and processes the slice
+// [offset, offset+limit) of those groups — a positional "range" over the
+// sheet's distinct orders, not a raw row range, since one order's line
+// items must never be split across a range boundary. Every order in that
+// slice is attempted (success or skip both count), so a range like
+// offset=200 limit=200 always means "the 201st-400th orders in the sheet",
+// regardless of how many of them turn out to be skippable. Each created
+// order is enqueued straight onto the invoice queue — the same path a
+// UI-created order takes.
+func (r *Repository) ImportOrdersFromRows(ctx context.Context, rows [][]string, catalogRepo *catalog.Repository, invoiceQ *queue.Queue, offset, limit int) (OrderImportResult, error) {
 	if len(rows) < 2 {
 		return OrderImportResult{}, fmt.Errorf("sheet has no data rows below the header")
 	}
@@ -101,12 +108,18 @@ func (r *Repository) ImportOrdersFromRows(ctx context.Context, rows [][]string, 
 		groups[code] = append(groups[code], row)
 	}
 
-	result := OrderImportResult{Created: []string{}, Skipped: []OrderSkipReason{}}
+	result := OrderImportResult{Created: []string{}, Skipped: []OrderSkipReason{}, TotalGroups: len(orderCodes)}
 
-	for _, code := range orderCodes {
-		if len(result.Created) >= limit {
-			break
-		}
+	start := offset
+	if start > len(orderCodes) {
+		start = len(orderCodes)
+	}
+	end := start + limit
+	if end > len(orderCodes) {
+		end = len(orderCodes)
+	}
+
+	for _, code := range orderCodes[start:end] {
 		if err := r.importOneOrder(ctx, code, groups[code], col, catalogRepo, invoiceQ); err != nil {
 			result.Skipped = append(result.Skipped, OrderSkipReason{OrderCode: code, Reason: err.Error()})
 			continue
