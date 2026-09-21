@@ -28,6 +28,20 @@ type ComboItem struct {
 	Product   Product `json:"product"`
 }
 
+// OrderExtraItem is a standalone product line on an order that isn't part
+// of its combo (e.g. a "FREE GIFT" bundled onto that specific order) —
+// rendered as its own top-level Sr row on the invoice, not indented under
+// the combo. UnitPrice is stored per-line rather than looked up from
+// products.price, since these are often priced far below catalog price.
+type OrderExtraItem struct {
+	ID        int64   `json:"id"`
+	OrderID   int64   `json:"order_id"`
+	ProductID int64   `json:"product_id"`
+	Quantity  float64 `json:"quantity"`
+	UnitPrice float64 `json:"unit_price"`
+	Product   Product `json:"product"`
+}
+
 // Order statuses form a strict pipeline:
 //
 //	PENDING -> QUEUED -> GENERATING -> GENERATED -> PRINTING -> PRINTED

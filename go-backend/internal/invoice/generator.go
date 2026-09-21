@@ -69,11 +69,22 @@ func (g *Generator) Generate(ctx context.Context, orderID int64) (models.Invoice
 		return models.Invoice{}, fmt.Errorf("combo %d has no items", order.ComboID)
 	}
 
+	extraItems, err := g.repo.GetOrderExtraItems(ctx, orderID)
+	if err != nil {
+		return models.Invoice{}, fmt.Errorf("get extra items: %w", err)
+	}
+
 	isInterstate := order.CustomerStateCode != "" && order.CustomerStateCode != companyinfo.CompanyStateCode
 
 	lines, sumGross := buildLines(items, order.ComboQuantity)
 	discountTotal := comboDiscount(combo, sumGross)
 	applyDiscount(lines, sumGross, discountTotal, isInterstate)
+
+	// Extra (standalone) items aren't part of the combo, so no combo
+	// discount applies to them — sumGross/discountTotal of 0 makes
+	// applyDiscount's proportional-share branch a no-op, leaving discount=0.
+	extraLines := buildExtraLines(extraItems)
+	applyDiscount(extraLines, 0, 0, isInterstate)
 
 	invNo := invoiceNumber(orderID)
 	pdfName := invNo + ".pdf"
@@ -83,8 +94,11 @@ func (g *Generator) Generate(ctx context.Context, orderID int64) (models.Invoice
 	for _, l := range lines {
 		total += l.totalAmount
 	}
+	for _, l := range extraLines {
+		total += l.totalAmount
+	}
 
-	if err := renderPDF(pdfPath, order, combo, invNo, lines, total, isInterstate); err != nil {
+	if err := renderPDF(pdfPath, order, combo, invNo, lines, extraLines, total, isInterstate); err != nil {
 		return models.Invoice{}, fmt.Errorf("render pdf: %w", err)
 	}
 
@@ -113,6 +127,21 @@ func buildLines(items []models.ComboItem, comboQty float64) ([]*lineItem, float6
 		})
 	}
 	return lines, sumGross
+}
+
+// buildExtraLines builds lineItems for an order's standalone items, using
+// each line's own stored unit_price (often far below the product's normal
+// catalog price for something like a free gift) rather than product.Price.
+func buildExtraLines(items []models.OrderExtraItem) []*lineItem {
+	var lines []*lineItem
+	for _, it := range items {
+		gross := it.UnitPrice * it.Quantity
+		lines = append(lines, &lineItem{
+			name: it.Product.Name, sku: it.Product.SKU, hsn: it.Product.HSNCode,
+			qty: it.Quantity, rate: it.UnitPrice, gross: gross, taxRate: it.Product.TaxRate,
+		})
+	}
+	return lines
 }
 
 func comboDiscount(combo models.Combo, sumGross float64) float64 {
@@ -165,7 +194,7 @@ const (
 	pageRight  = pageWidth - pageMargin
 )
 
-func renderPDF(path string, order models.Order, combo models.Combo, invNo string, lines []*lineItem, total float64, isInterstate bool) error {
+func renderPDF(path string, order models.Order, combo models.Combo, invNo string, lines, extraLines []*lineItem, total float64, isInterstate bool) error {
 	pdf := fpdf.New("P", "mm", "A4", "")
 	pdf.SetAutoPageBreak(false, 0)
 	pdf.AddPage()
@@ -213,41 +242,43 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 	pdf.SetXY(left+1.5, dividerY+6)
 	pdf.MultiCell(colA-left-4, 3, companyinfo.ShippedFromAddress, "", "L", false)
 
+	// Invoice No (left half) and Invoice Date (right half) sit side by side
+	// at the top of the middle column, matching the reference layout —
+	// Order No/Order Date + barcode are centered below, spanning the full
+	// column width.
+	colBHalf := (colB - colA) / 2
 	pdf.SetFont("Helvetica", "", 7)
 	pdf.SetXY(colA+1.5, y)
-	pdf.CellFormat(colB-colA-3, 3.5, "Invoice No:", "", 0, "L", false, 0, "")
+	pdf.CellFormat(colBHalf-3, 3.5, "Invoice No:", "", 0, "L", false, 0, "")
 	pdf.SetFont("Helvetica", "B", 7)
 	pdf.SetXY(colA+1.5, y+4)
-	pdf.CellFormat(colB-colA-3, 3.5, invNo, "", 0, "L", false, 0, "")
+	pdf.CellFormat(colBHalf-3, 3.5, invNo, "", 0, "L", false, 0, "")
+
+	pdf.SetFont("Helvetica", "", 7)
+	pdf.SetXY(colA+colBHalf+1.5, y)
+	pdf.CellFormat(colBHalf-3, 3.5, "Invoice Date:", "", 0, "L", false, 0, "")
+	pdf.SetFont("Helvetica", "B", 7)
+	pdf.SetXY(colA+colBHalf+1.5, y+4)
+	pdf.CellFormat(colBHalf-3, 3.5, formatDate(order.CreatedAt), "", 0, "L", false, 0, "")
 
 	pdf.SetFont("Helvetica", "", 7)
 	pdf.SetXY(colA+1.5, y+10)
-	pdf.CellFormat(colB-colA-3, 3.5, "Order No:", "", 0, "L", false, 0, "")
-	pdf.SetFont("Helvetica", "B", 7)
+	pdf.CellFormat(colB-colA-3, 3.5, "Order No: "+order.ShopifyOrderNo, "", 0, "C", false, 0, "")
 	pdf.SetXY(colA+1.5, y+14)
-	pdf.CellFormat(colB-colA-3, 3.5, order.ShopifyOrderNo, "", 0, "L", false, 0, "")
-	pdf.SetFont("Helvetica", "", 7)
-	pdf.SetXY(colA+1.5, y+19)
-	pdf.CellFormat(colB-colA-3, 3.5, "Order Date: "+formatDate(order.CreatedAt), "", 0, "L", false, 0, "")
+	pdf.CellFormat(colB-colA-3, 3.5, "Order Date: "+formatDate(order.CreatedAt), "", 0, "C", false, 0, "")
 	if orderBarcode != "" {
-		pdf.ImageOptions(orderBarcode, colA+1.5, y+24, colB-colA-6, 8, false, fpdf.ImageOptions{ImageType: "PNG"}, 0, "")
+		barcodeWidth := 40.0
+		pdf.ImageOptions(orderBarcode, colA+(colB-colA-barcodeWidth)/2, y+19, barcodeWidth, 8, false, fpdf.ImageOptions{ImageType: "PNG"}, 0, "")
 	}
 
 	col3Width := right - colB - 3
 	pdf.SetFont("Helvetica", "", 7)
 	pdf.SetXY(colB+1.5, y)
-	pdf.CellFormat(col3Width, 3.5, "Invoice Date:", "", 0, "L", false, 0, "")
-	pdf.SetFont("Helvetica", "B", 7)
-	pdf.SetXY(colB+1.5, y+4)
-	pdf.CellFormat(col3Width, 3.5, formatDate(order.CreatedAt), "", 0, "L", false, 0, "")
-
-	pdf.SetFont("Helvetica", "", 7)
-	pdf.SetXY(colB+1.5, y+13)
 	pdf.CellFormat(col3Width, 3.5, "Portal: "+order.Portal, "", 0, "L", false, 0, "")
-	pdf.SetXY(colB+1.5, y+18)
+	pdf.SetXY(colB+1.5, y+5)
 	pdf.CellFormat(col3Width, 3.5, "Payment Mode: "+order.PaymentModeCode, "", 0, "L", false, 0, "")
 	pdf.SetFont("Helvetica", "B", 7)
-	pdf.SetXY(colB+1.5, y+21.5)
+	pdf.SetXY(colB+1.5, y+8.5)
 	pdf.CellFormat(col3Width, 3.5, order.PaymentModeLabel, "", 0, "L", false, 0, "")
 
 	// ---- Bill To / Ship To / Dispatch (same 3 columns as the row above) ----
@@ -300,17 +331,20 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 
 	// ---- Table 1: gross amount / discount / amount, grouped by combo ----
 	t1Cols := []tableColumn{
-		{"Sr", 8, "L"}, {"Product Name", 42, "L"}, {"Product Code", 22, "L"}, {"HSN Code", 18, "L"},
-		{"Qty", 9, "R"}, {"Rate", 17, "R"}, {"Gross Amt\nIncl GST", 20, "R"}, {"Discount", 17, "R"},
-		{"Store\nCredit", 15, "R"}, {"Amount\n(INR)", 22, "R"},
+		{"Sr No.", 8, "L"}, {"Product Name", 42, "L"}, {"Product Code.", 22, "L"}, {"HSN Code", 18, "L"},
+		{"Qty", 9, "R"}, {"Rate", 17, "R"}, {"Gross Amount- Incl GST (INR)", 20, "R"}, {"Discount", 17, "R"},
+		{"Store Credit", 15, "R"}, {"Amount (INR)", 22, "R"},
 	}
 
 	totalQty := 0.0
 	for _, l := range lines {
 		totalQty += l.qty
 	}
+	for _, l := range extraLines {
+		totalQty += l.qty
+	}
 
-	t1Rows, t1Bold := buildGroupedRows(combo, order, lines, func(l *lineItem, code string) []string {
+	t1Rows, t1Bold := buildGroupedRows(combo, order, lines, extraLines, func(l *lineItem, code string) []string {
 		return []string{"", l.name, code, l.hsn, fmt.Sprintf("%.0f", l.qty), money2(l.rate), money2(l.gross), money2(l.discount), "0.00", money2(l.totalAmount)}
 	})
 	y = drawTable(pdf, left, y, t1Cols, t1Rows, t1Bold,
@@ -334,25 +368,25 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 	var t2Cols []tableColumn
 	if isInterstate {
 		t2Cols = []tableColumn{
-			{"Sr", 8, "L"}, {"Product Name", 42, "L"}, {"Product Code", 22, "L"}, {"HSN Code", 18, "L"},
-			{"Qty", 9, "R"}, {"Taxable\nValue (INR)", 30, "R"}, {"IGST (INR)", 31, "R"}, {"Amount\n(INR)", 30, "R"},
+			{"Sr No.", 8, "L"}, {"Product Name", 42, "L"}, {"Product Code.", 22, "L"}, {"HSN Code", 18, "L"},
+			{"Qty", 9, "R"}, {"Taxable Value (INR)", 30, "R"}, {"IGST (INR)", 31, "R"}, {"Amount (INR)", 30, "R"},
 		}
 	} else {
 		t2Cols = []tableColumn{
-			{"Sr", 8, "L"}, {"Product Name", 42, "L"}, {"Product Code", 22, "L"}, {"HSN Code", 18, "L"},
-			{"Qty", 9, "R"}, {"Taxable\nValue (INR)", 25, "R"}, {"CGST (INR)", 22, "R"}, {"SGST (INR)", 22, "R"}, {"Amount\n(INR)", 22, "R"},
+			{"Sr No.", 8, "L"}, {"Product Name", 42, "L"}, {"Product Code.", 22, "L"}, {"HSN Code", 18, "L"},
+			{"Qty", 9, "R"}, {"Taxable Value (INR)", 25, "R"}, {"CGST (INR)", 22, "R"}, {"SGST (INR)", 22, "R"}, {"Amount (INR)", 22, "R"},
 		}
 	}
 
 	totalTaxable, totalCgst, totalSgst, totalIgst := 0.0, 0.0, 0.0, 0.0
-	for _, l := range lines {
+	for _, l := range append(append([]*lineItem{}, lines...), extraLines...) {
 		totalTaxable += l.taxable
 		totalCgst += l.cgst
 		totalSgst += l.sgst
 		totalIgst += l.igst
 	}
 
-	t2Rows, t2Bold := buildGroupedRows(combo, order, lines, func(l *lineItem, code string) []string {
+	t2Rows, t2Bold := buildGroupedRows(combo, order, lines, extraLines, func(l *lineItem, code string) []string {
 		if isInterstate {
 			return []string{"", l.name, code, l.hsn, fmt.Sprintf("%.0f", l.qty), money2(l.taxable),
 				fmt.Sprintf("%s (%.2f%%)", money2(l.igst), l.taxRate), money2(l.totalAmount)}
@@ -437,8 +471,11 @@ func multiCellHeight(pdf *fpdf.Fpdf, width, lineHeight float64, text string) flo
 
 // buildGroupedRows mirrors the reference invoice's bundle layout: a bold
 // combo-header row (name/code/number of sets, no money columns) followed by
-// each real product indented below it with its code in parentheses.
-func buildGroupedRows(combo models.Combo, order models.Order, lines []*lineItem, rowFor func(*lineItem, string) []string) ([][]string, []bool) {
+// each real combo product indented below it with its code in parentheses,
+// then any standalone extra items (e.g. a "FREE GIFT" bundled onto this
+// specific order) as their own full top-level Sr rows — not indented, since
+// they aren't part of the combo.
+func buildGroupedRows(combo models.Combo, order models.Order, lines []*lineItem, extraLines []*lineItem, rowFor func(*lineItem, string) []string) ([][]string, []bool) {
 	var rows [][]string
 	var bold []bool
 
@@ -451,7 +488,7 @@ func buildGroupedRows(combo models.Combo, order models.Order, lines []*lineItem,
 		code = "-"
 	}
 	blankHeader[2] = code
-	blankHeader[3] = "-"
+	blankHeader[3] = ""
 	blankHeader[4] = fmt.Sprintf("%.0f", order.ComboQuantity)
 	for i := 5; i < len(blankHeader); i++ {
 		blankHeader[i] = ""
@@ -463,6 +500,15 @@ func buildGroupedRows(combo models.Combo, order models.Order, lines []*lineItem,
 		row := rowFor(l, fmt.Sprintf("(%s)", l.sku))
 		rows = append(rows, row)
 		bold = append(bold, false)
+	}
+
+	sr := 2
+	for _, l := range extraLines {
+		row := rowFor(l, l.sku)
+		row[0] = fmt.Sprintf("%d", sr)
+		rows = append(rows, row)
+		bold = append(bold, false)
+		sr++
 	}
 	return rows, bold
 }

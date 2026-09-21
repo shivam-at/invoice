@@ -107,6 +107,11 @@ type createOrderReq struct {
 	AWBNo             string  `json:"awb_no"`
 	ShippingName      string  `json:"shipping_name"`
 	ShippingAddress   string  `json:"shipping_address"`
+	ExtraItems        []struct {
+		ProductID int64   `json:"product_id"`
+		Quantity  float64 `json:"quantity"`
+		UnitPrice float64 `json:"unit_price"`
+	} `json:"extra_items"`
 }
 
 func (a *api) createOrder(w http.ResponseWriter, r *http.Request) {
@@ -130,13 +135,22 @@ func (a *api) createOrder(w http.ResponseWriter, r *http.Request) {
 		req.ComboQuantity = 1
 	}
 
+	var extraItems []models.OrderExtraItem
+	for _, it := range req.ExtraItems {
+		if it.ProductID == 0 {
+			httpError(w, http.StatusBadRequest, "each extra item requires product_id")
+			return
+		}
+		extraItems = append(extraItems, models.OrderExtraItem{ProductID: it.ProductID, Quantity: it.Quantity, UnitPrice: it.UnitPrice})
+	}
+
 	id, err := a.svc.CreateOrder(r.Context(), models.Order{
 		OrderNo: req.OrderNo, ComboID: req.ComboID, ComboQuantity: req.ComboQuantity,
 		CustomerName: req.CustomerName, CustomerAddress: req.CustomerAddress, CustomerStateCode: req.CustomerStateCode,
 		ShopifyOrderNo: req.ShopifyOrderNo, Portal: req.Portal, PaymentModeCode: req.PaymentModeCode,
 		PaymentModeLabel: req.PaymentModeLabel, DispatchThrough: req.DispatchThrough, AWBNo: req.AWBNo,
 		ShippingName: req.ShippingName, ShippingAddress: req.ShippingAddress,
-	})
+	}, extraItems)
 	if err != nil {
 		httpError(w, http.StatusBadRequest, err.Error())
 		return
@@ -181,6 +195,9 @@ func (a *api) getOrder(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]any{"order": order}
 	if inv, err := a.repo.GetInvoice(r.Context(), id); err == nil {
 		resp["invoice"] = inv
+	}
+	if extraItems, err := a.repo.GetOrderExtraItems(r.Context(), id); err == nil {
+		resp["extra_items"] = extraItems
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

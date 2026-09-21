@@ -176,6 +176,7 @@ button:disabled { opacity: 0.55; cursor: not-allowed; box-shadow: none; }
 .alert.success { background: var(--success-bg); color: var(--success-text); border-color: #a7f3d0; }
 
 .combo-item-row { display: grid; grid-template-columns: 2fr 1fr auto; gap: 10px; align-items: end; margin-bottom: 8px; }
+.extra-item-row { display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 10px; align-items: end; margin-bottom: 8px; }
 
 .pagination { display: flex; align-items: center; gap: 10px; justify-content: flex-end; margin-top: 14px; }
 .pagination .muted { font-size: 12.5px; }

@@ -22,8 +22,8 @@ func NewService(repo *Repository, rdb *redis.Client, invoiceQ *queue.Queue) *Ser
 	return &Service{repo: repo, rdb: rdb, invoiceQ: invoiceQ}
 }
 
-func (s *Service) CreateOrder(ctx context.Context, o models.Order) (int64, error) {
-	return s.repo.CreateOrder(ctx, o)
+func (s *Service) CreateOrder(ctx context.Context, o models.Order, extraItems []models.OrderExtraItem) (int64, error) {
+	return s.repo.CreateOrder(ctx, o, extraItems)
 }
 
 func (s *Service) GetOrder(ctx context.Context, id int64) (models.Order, error) {

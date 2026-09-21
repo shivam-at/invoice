@@ -20,10 +20,11 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-// CreateOrder inserts a new order, deciding IsCMD from whether the combo's
-// code starts with "CMB" (the existing combo-SKU convention this whole
-// pipeline exists to fast-track).
-func (r *Repository) CreateOrder(ctx context.Context, o models.Order) (int64, error) {
+// CreateOrder inserts a new order (plus any standalone extra items, e.g.
+// free gifts — see models.OrderExtraItem) in one transaction, deciding
+// IsCMD from whether the combo's code starts with "CMB" (the existing
+// combo-SKU convention this whole pipeline exists to fast-track).
+func (r *Repository) CreateOrder(ctx context.Context, o models.Order, extraItems []models.OrderExtraItem) (int64, error) {
 	var comboCode string
 	if err := r.pool.QueryRow(ctx, `SELECT code FROM combos WHERE id = $1`, o.ComboID).Scan(&comboCode); err != nil {
 		return 0, fmt.Errorf("lookup combo: %w", err)
@@ -39,8 +40,14 @@ func (r *Repository) CreateOrder(ctx context.Context, o models.Order) (int64, er
 	shippingName := orDefault(o.ShippingName, o.CustomerName)
 	shippingAddress := orDefault(o.ShippingAddress, o.CustomerAddress)
 
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback(ctx)
+
 	var id int64
-	err := r.pool.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		INSERT INTO orders (
 			order_no, combo_id, combo_quantity, customer_name, customer_address, customer_state_code, is_cmd, status,
 			shopify_order_no, portal, payment_mode_code, payment_mode_label, dispatch_through, awb_no,
@@ -52,6 +59,25 @@ func (r *Repository) CreateOrder(ctx context.Context, o models.Order) (int64, er
 		shopifyOrderNo, portal, paymentModeCode, paymentModeLabel, dispatchThrough, awbNo, shippingName, shippingAddress).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("insert order: %w", err)
+	}
+
+	for _, item := range extraItems {
+		if item.ProductID == 0 {
+			return 0, fmt.Errorf("extra item requires product_id")
+		}
+		qty := item.Quantity
+		if qty <= 0 {
+			qty = 1
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO order_extra_items (order_id, product_id, quantity, unit_price) VALUES ($1, $2, $3, $4)
+		`, id, item.ProductID, qty, item.UnitPrice); err != nil {
+			return 0, fmt.Errorf("insert extra item: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, err
 	}
 	return id, nil
 }
@@ -82,6 +108,34 @@ func scanOrder(row pgx.Row) (models.Order, error) {
 func (r *Repository) GetOrder(ctx context.Context, id int64) (models.Order, error) {
 	row := r.pool.QueryRow(ctx, `SELECT `+orderColumns+` FROM orders WHERE id = $1`, id)
 	return scanOrder(row)
+}
+
+// GetOrderExtraItems returns the standalone product lines on an order
+// beyond its combo (e.g. free gifts) — always []models.OrderExtraItem{},
+// never nil, so JSON serializes to [] rather than null.
+func (r *Repository) GetOrderExtraItems(ctx context.Context, orderID int64) ([]models.OrderExtraItem, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT oei.id, oei.order_id, oei.product_id, oei.quantity, oei.unit_price,
+		       COALESCE(p.sku,''), p.name, COALESCE(p.hsn_code,''), p.price, p.tax_rate, COALESCE(p.category_code,'')
+		FROM order_extra_items oei JOIN products p ON p.id = oei.product_id
+		WHERE oei.order_id = $1
+		ORDER BY oei.id
+	`, orderID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := []models.OrderExtraItem{}
+	for rows.Next() {
+		var it models.OrderExtraItem
+		if err := rows.Scan(&it.ID, &it.OrderID, &it.ProductID, &it.Quantity, &it.UnitPrice,
+			&it.Product.SKU, &it.Product.Name, &it.Product.HSNCode, &it.Product.Price, &it.Product.TaxRate, &it.Product.CategoryCode); err != nil {
+			return nil, err
+		}
+		items = append(items, it)
+	}
+	return items, nil
 }
 
 func (r *Repository) ListOrders(ctx context.Context, limit int) ([]models.Order, error) {

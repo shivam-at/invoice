@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { CombosApi, OrdersApi } from "../api/client.js";
 import { GST_STATES } from "../gstStates.js";
+import ProductAutocomplete from "../components/ProductAutocomplete.jsx";
 
 function defaultOrderNo() {
   return `ORD-${Date.now()}`;
@@ -16,6 +17,7 @@ export default function NewOrderPage() {
   const [customerName, setCustomerName] = useState("");
   const [customerAddress, setCustomerAddress] = useState("");
   const [customerStateCode, setCustomerStateCode] = useState("");
+  const [extraItems, setExtraItems] = useState([]);
 
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -36,6 +38,11 @@ export default function NewOrderPage() {
       })
     : combos;
 
+  const addExtraItem = () => setExtraItems((prev) => [...prev, { product: null, quantity: 1, unitPrice: "" }]);
+  const removeExtraItem = (idx) => setExtraItems((prev) => prev.filter((_, i) => i !== idx));
+  const updateExtraItem = (idx, patch) =>
+    setExtraItems((prev) => prev.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
+
   const submit = async (e) => {
     e.preventDefault();
     setError("");
@@ -47,6 +54,11 @@ export default function NewOrderPage() {
       setError("Customer State is required — it decides CGST+SGST vs IGST and can't be guessed.");
       return;
     }
+    const validExtraItems = extraItems.filter((it) => it.product);
+    if (validExtraItems.some((it) => it.unitPrice === "" || Number(it.unitPrice) < 0)) {
+      setError("Every extra item needs a unit price (0 or more).");
+      return;
+    }
     setSubmitting(true);
     try {
       const created = await OrdersApi.create({
@@ -55,7 +67,12 @@ export default function NewOrderPage() {
         combo_quantity: Number(comboQuantity) || 1,
         customer_name: customerName,
         customer_address: customerAddress,
-        customer_state_code: customerStateCode
+        customer_state_code: customerStateCode,
+        extra_items: validExtraItems.map((it) => ({
+          product_id: it.product.id,
+          quantity: Number(it.quantity) || 1,
+          unit_price: Number(it.unitPrice)
+        }))
       });
       // The order lands as PENDING — kick it into the invoice/print pipeline
       // right away instead of waiting for a periodic identify-cmd sweep.
@@ -155,6 +172,47 @@ export default function NewOrderPage() {
               )}
             </div>
           )}
+
+          <div style={{ marginTop: 16 }}>
+            <h4 style={{ marginBottom: 8 }}>Extra Items (optional — e.g. a free gift bundled onto this order)</h4>
+            <p className="muted" style={{ marginTop: -4 }}>
+              These are NOT part of the combo — they print as their own line on the invoice, not indented under it.
+            </p>
+            {extraItems.map((item, idx) => (
+              <div className="extra-item-row" key={idx}>
+                <div>
+                  <label>Product</label>
+                  <ProductAutocomplete selected={item.product} onSelect={(product) => updateExtraItem(idx, { product })} />
+                </div>
+                <div>
+                  <label>Qty</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={item.quantity}
+                    onChange={(e) => updateExtraItem(idx, { quantity: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label>Unit Price (₹)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={item.unitPrice}
+                    onChange={(e) => updateExtraItem(idx, { unitPrice: e.target.value })}
+                    placeholder="e.g. 1.00 for a free gift"
+                  />
+                </div>
+                <button type="button" className="secondary" onClick={() => removeExtraItem(idx)}>
+                  Remove
+                </button>
+              </div>
+            ))}
+            <button type="button" className="secondary" onClick={addExtraItem}>
+              + Add Extra Item
+            </button>
+          </div>
 
           <div style={{ marginTop: 16 }}>
             <button type="submit" disabled={submitting}>

@@ -32,7 +32,7 @@ export default function OrderDetailPage() {
   if (error) return <div className="alert error">{error}</div>;
   if (!data) return <p className="muted">Loading...</p>;
 
-  const { order, invoice } = data;
+  const { order, invoice, extra_items: extraItems = [] } = data;
   const isTerminal = TERMINAL_STATUSES.includes(order.status);
 
   return (
@@ -60,6 +60,30 @@ export default function OrderDetailPage() {
           )}
         </div>
       </div>
+
+      {extraItems.length > 0 && (
+        <div className="card">
+          <h3>Extra Items (not part of the combo)</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Product</th>
+                <th>Qty</th>
+                <th>Unit Price</th>
+              </tr>
+            </thead>
+            <tbody>
+              {extraItems.map((it) => (
+                <tr key={it.id}>
+                  <td>{it.product.name}</td>
+                  <td>{it.quantity}</td>
+                  <td>₹{it.unit_price.toFixed(2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {order.status === "FAILED" && (
         <div className="alert error">
