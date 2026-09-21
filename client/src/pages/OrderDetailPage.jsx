@@ -1,82 +1,72 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { OrdersApi } from "../api/client.js";
 
+const TERMINAL_STATUSES = ["PRINTED", "FAILED"];
+
 export default function OrderDetailPage() {
   const { id } = useParams();
-  const [order, setOrder] = useState(null);
+  const [data, setData] = useState(null);
   const [error, setError] = useState("");
+  const intervalRef = useRef(null);
 
   useEffect(() => {
-    OrdersApi.get(id).then(setOrder).catch((e) => setError(e.response?.data?.error || e.message));
+    const load = () => {
+      OrdersApi.get(id)
+        .then((res) => {
+          setData(res);
+          if (TERMINAL_STATUSES.includes(res.order.status) && intervalRef.current) {
+            clearInterval(intervalRef.current);
+            intervalRef.current = null;
+          }
+        })
+        .catch((e) => setError(e.response?.data?.error || e.message));
+    };
+    load();
+    intervalRef.current = setInterval(load, 1500);
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
   }, [id]);
 
   if (error) return <div className="alert error">{error}</div>;
-  if (!order) return <p className="muted">Loading...</p>;
+  if (!data) return <p className="muted">Loading...</p>;
 
-  const total = order.invoices.reduce((acc, inv) => acc + inv.total_amount, 0);
-  const isInterstate = order.invoices.some((inv) => inv.igst_amount > 0);
+  const { order, invoice } = data;
+  const isTerminal = TERMINAL_STATUSES.includes(order.status);
 
   return (
     <div>
-      <h2>Order ORD-{String(order.id).padStart(5, "0")}</h2>
+      <h2>Order {order.order_no}</h2>
       <div className="card">
         <div className="row between">
           <div>
             <strong>{order.customer_name}</strong>
-            <div className="muted">{order.customer_email} {order.customer_phone}</div>
             <div className="muted">{order.customer_address}</div>
             <div className="muted" style={{ marginTop: 6 }}>
-              Invoice No: <strong>{order.invoice_number}</strong>
+              Status: <span className="badge">{order.status}</span>
+              {!isTerminal && <span className="muted"> — updating live...</span>}
             </div>
+            {invoice && (
+              <div className="muted" style={{ marginTop: 6 }}>
+                Invoice No: <strong>{invoice.invoice_number}</strong> — Total: ₹{invoice.total_amount.toFixed(2)}
+              </div>
+            )}
           </div>
-          <a href={OrdersApi.pdfUrl(order.id)}>
-            <button>Download Invoice PDF</button>
-          </a>
+          {invoice && (
+            <a href={OrdersApi.pdfUrl(order.id)} target="_blank" rel="noreferrer">
+              <button>Download Invoice PDF</button>
+            </a>
+          )}
         </div>
       </div>
 
-      <div className="card">
-        <h3>Line Items</h3>
-        <p className="muted">Each product prints as one line on the single order invoice above.</p>
-        <p className="muted">
-          Supply type: <strong>{isInterstate ? "Inter-State (IGST)" : "Intra-State (CGST + SGST)"}</strong>
-        </p>
-        <table>
-          <thead>
-            <tr>
-              <th>Product</th>
-              <th>Qty</th>
-              <th>Taxable Value</th>
-              <th>CGST</th>
-              <th>SGST</th>
-              <th>IGST</th>
-              <th>Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {order.invoices.map((inv) => (
-              <tr key={inv.id}>
-                <td>{inv.product_name}</td>
-                <td>{inv.quantity}</td>
-                <td>₹{inv.allocated_amount.toFixed(2)}</td>
-                <td>₹{inv.cgst_amount.toFixed(2)}</td>
-                <td>₹{inv.sgst_amount.toFixed(2)}</td>
-                <td>₹{inv.igst_amount.toFixed(2)}</td>
-                <td>₹{inv.total_amount.toFixed(2)}</td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr>
-              <td colSpan={6} style={{ textAlign: "right", fontWeight: 600 }}>
-                Order Total
-              </td>
-              <td style={{ fontWeight: 600 }}>₹{total.toFixed(2)}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+      {order.status === "FAILED" && (
+        <div className="alert error">
+          This order failed to generate/print after retries. Check the worker/printer logs and the Redis dead-letter
+          queues for details.
+        </div>
+      )}
     </div>
   );
 }

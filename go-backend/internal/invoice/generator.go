@@ -1,0 +1,468 @@
+// Package invoice computes line-item tax and renders the PDF, reproducing
+// the original Node app's Maskyeti-format tax invoice: bordered header grid
+// with barcodes, combo-grouped line-item tables, CGST+SGST/IGST breakdown,
+// amount in words, declaration, and signatory box.
+package invoice
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/go-pdf/fpdf"
+
+	"invoice-system/internal/companyinfo"
+	"invoice-system/internal/models"
+	"invoice-system/internal/orders"
+)
+
+type Generator struct {
+	repo        *orders.Repository
+	invoicesDir string
+}
+
+func NewGenerator(repo *orders.Repository, invoicesDir string) *Generator {
+	_ = os.MkdirAll(invoicesDir, 0o755)
+	return &Generator{repo: repo, invoicesDir: invoicesDir}
+}
+
+type lineItem struct {
+	name        string
+	sku         string
+	hsn         string
+	qty         float64
+	rate        float64
+	gross       float64
+	discount    float64
+	taxable     float64
+	taxRate     float64
+	taxAmount   float64
+	cgst        float64
+	sgst        float64
+	igst        float64
+	totalAmount float64
+}
+
+// invoiceNumber is deterministic from the order id, so retrying a failed job
+// for the same order always reproduces the same invoice number instead of
+// burning a new one — important since invoice numbers are meant to be
+// gap-free for GST filing.
+func invoiceNumber(orderID int64) string {
+	return fmt.Sprintf("CMD%08d", orderID)
+}
+
+// Generate computes the invoice for order id, writes its PDF to disk, and
+// persists the invoice row (idempotently — see CreateInvoiceIfAbsent).
+func (g *Generator) Generate(ctx context.Context, orderID int64) (models.Invoice, error) {
+	order, err := g.repo.GetOrder(ctx, orderID)
+	if err != nil {
+		return models.Invoice{}, fmt.Errorf("get order: %w", err)
+	}
+
+	items, combo, err := g.repo.GetComboItems(ctx, order.ComboID)
+	if err != nil {
+		return models.Invoice{}, fmt.Errorf("get combo items: %w", err)
+	}
+	if len(items) == 0 {
+		return models.Invoice{}, fmt.Errorf("combo %d has no items", order.ComboID)
+	}
+
+	isInterstate := order.CustomerStateCode != "" && order.CustomerStateCode != companyinfo.CompanyStateCode
+
+	lines, sumGross := buildLines(items, order.ComboQuantity)
+	discountTotal := comboDiscount(combo, sumGross)
+	applyDiscount(lines, sumGross, discountTotal, isInterstate)
+
+	invNo := invoiceNumber(orderID)
+	pdfName := invNo + ".pdf"
+	pdfPath := filepath.Join(g.invoicesDir, pdfName)
+
+	total := 0.0
+	for _, l := range lines {
+		total += l.totalAmount
+	}
+
+	if err := renderPDF(pdfPath, order, combo, invNo, lines, total, isInterstate); err != nil {
+		return models.Invoice{}, fmt.Errorf("render pdf: %w", err)
+	}
+
+	inv := models.Invoice{
+		OrderID:       orderID,
+		InvoiceNumber: invNo,
+		PDFPath:       pdfPath,
+		TotalAmount:   total,
+	}
+	if _, err := g.repo.CreateInvoiceIfAbsent(ctx, inv); err != nil {
+		return models.Invoice{}, fmt.Errorf("persist invoice: %w", err)
+	}
+	return inv, nil
+}
+
+func buildLines(items []models.ComboItem, comboQty float64) ([]*lineItem, float64) {
+	var lines []*lineItem
+	sumGross := 0.0
+	for _, it := range items {
+		qty := it.Quantity * comboQty
+		gross := it.Product.Price * qty
+		sumGross += gross
+		lines = append(lines, &lineItem{
+			name: it.Product.Name, sku: it.Product.SKU, hsn: it.Product.HSNCode,
+			qty: qty, rate: it.Product.Price, gross: gross, taxRate: it.Product.TaxRate,
+		})
+	}
+	return lines, sumGross
+}
+
+func comboDiscount(combo models.Combo, sumGross float64) float64 {
+	switch combo.DiscountType {
+	case "percent":
+		return sumGross * (combo.DiscountValue / 100)
+	case "fixed":
+		if combo.DiscountValue < sumGross {
+			return combo.DiscountValue
+		}
+		return sumGross
+	default:
+		return 0
+	}
+}
+
+// applyDiscount splits the combo discount across lines proportional to each
+// line's own gross amount, derives taxable value/tax back out of the
+// GST-inclusive price, then splits that tax into CGST+SGST (intra-state) or
+// IGST (inter-state) — same model the original Node invoiceService used.
+func applyDiscount(lines []*lineItem, sumGross, discountTotal float64, isInterstate bool) {
+	for _, l := range lines {
+		if sumGross > 0 {
+			l.discount = round2(discountTotal * (l.gross / sumGross))
+		}
+		l.totalAmount = round2(l.gross - l.discount)
+		l.taxable = round2(l.totalAmount / (1 + l.taxRate/100))
+		l.taxAmount = round2(l.totalAmount - l.taxable)
+
+		if isInterstate {
+			l.igst = l.taxAmount
+		} else {
+			l.cgst = round2(l.taxAmount / 2)
+			l.sgst = round2(l.taxAmount - l.cgst)
+		}
+	}
+}
+
+func round2(f float64) float64 {
+	return float64(int64(f*100+0.5)) / 100
+}
+
+func formatDate(t time.Time) string {
+	return t.Format("02-Jan-2006")
+}
+
+const (
+	pageMargin = 10.0 // mm
+	pageWidth  = 210.0
+	pageRight  = pageWidth - pageMargin
+)
+
+func renderPDF(path string, order models.Order, combo models.Combo, invNo string, lines []*lineItem, total float64, isInterstate bool) error {
+	pdf := fpdf.New("P", "mm", "A4", "")
+	pdf.SetAutoPageBreak(false, 0)
+	pdf.AddPage()
+
+	left := pageMargin
+	right := pageRight
+	contentWidth := right - left
+
+	pdf.SetFont("Helvetica", "B", 13)
+	pdf.SetXY(left, 8)
+	pdf.CellFormat(contentWidth, 6, "Tax Invoice", "", 0, "C", false, 0, "")
+
+	// ---- Header block: a 2-row x 3-column grid, like the reference invoice ----
+	row1Top := 16.0
+	row2Top := 74.0
+	row2Bottom := 105.0
+	colA := left + contentWidth*0.42
+	colB := left + contentWidth*0.72
+
+	orderBarcode := registerBarcode(pdf, "order", order.ShopifyOrderNo)
+	awbBarcode := registerBarcode(pdf, "awb", order.AWBNo)
+
+	y := row1Top + 3
+	pdf.SetFont("Helvetica", "B", 8)
+	pdf.SetXY(left+1.5, y)
+	pdf.CellFormat(colA-left-4, 4, "BILL FROM:", "", 0, "L", false, 0, "")
+	pdf.SetXY(left+1.5, y+4)
+	pdf.CellFormat(colA-left-4, 4, companyinfo.CompanyName, "", 0, "L", false, 0, "")
+
+	pdf.SetFont("Helvetica", "", 7)
+	addrH := multiCellHeight(pdf, colA-left-4, 3, companyinfo.CompanyAddress)
+	pdf.SetXY(left+1.5, y+8)
+	pdf.MultiCell(colA-left-4, 3, companyinfo.CompanyAddress, "", "L", false)
+	gstinY := y + 8 + addrH + 0.5
+	pdf.SetXY(left+1.5, gstinY)
+	pdf.CellFormat(colA-left-4, 3.5, "GSTIN: "+companyinfo.CompanyGSTIN, "", 0, "L", false, 0, "")
+
+	dividerY := gstinY + 5
+	pdf.Line(left+1.5, dividerY, colA-1.5, dividerY)
+
+	pdf.SetFont("Helvetica", "B", 8)
+	pdf.SetXY(left+1.5, dividerY+2)
+	pdf.CellFormat(colA-left-4, 4, "Shipped From:", "", 0, "L", false, 0, "")
+	pdf.SetFont("Helvetica", "", 7)
+	pdf.SetXY(left+1.5, dividerY+6)
+	pdf.MultiCell(colA-left-4, 3, companyinfo.ShippedFromAddress, "", "L", false)
+
+	pdf.SetFont("Helvetica", "", 7)
+	pdf.SetXY(colA+1.5, y)
+	pdf.CellFormat(colB-colA-3, 3.5, "Invoice No:", "", 0, "L", false, 0, "")
+	pdf.SetFont("Helvetica", "B", 7)
+	pdf.SetXY(colA+1.5, y+4)
+	pdf.CellFormat(colB-colA-3, 3.5, invNo, "", 0, "L", false, 0, "")
+
+	pdf.SetFont("Helvetica", "", 7)
+	pdf.SetXY(colA+1.5, y+10)
+	pdf.CellFormat(colB-colA-3, 3.5, "Order No:", "", 0, "L", false, 0, "")
+	pdf.SetFont("Helvetica", "B", 7)
+	pdf.SetXY(colA+1.5, y+14)
+	pdf.CellFormat(colB-colA-3, 3.5, order.ShopifyOrderNo, "", 0, "L", false, 0, "")
+	pdf.SetFont("Helvetica", "", 7)
+	pdf.SetXY(colA+1.5, y+19)
+	pdf.CellFormat(colB-colA-3, 3.5, "Order Date: "+formatDate(order.CreatedAt), "", 0, "L", false, 0, "")
+	if orderBarcode != "" {
+		pdf.ImageOptions(orderBarcode, colA+1.5, y+24, colB-colA-6, 8, false, fpdf.ImageOptions{ImageType: "PNG"}, 0, "")
+	}
+
+	col3Width := right - colB - 3
+	pdf.SetFont("Helvetica", "", 7)
+	pdf.SetXY(colB+1.5, y)
+	pdf.CellFormat(col3Width, 3.5, "Invoice Date:", "", 0, "L", false, 0, "")
+	pdf.SetFont("Helvetica", "B", 7)
+	pdf.SetXY(colB+1.5, y+4)
+	pdf.CellFormat(col3Width, 3.5, formatDate(order.CreatedAt), "", 0, "L", false, 0, "")
+
+	pdf.SetFont("Helvetica", "", 7)
+	pdf.SetXY(colB+1.5, y+13)
+	pdf.CellFormat(col3Width, 3.5, "Portal: "+order.Portal, "", 0, "L", false, 0, "")
+	pdf.SetXY(colB+1.5, y+18)
+	pdf.CellFormat(col3Width, 3.5, "Payment Mode: "+order.PaymentModeCode, "", 0, "L", false, 0, "")
+	pdf.SetFont("Helvetica", "B", 7)
+	pdf.SetXY(colB+1.5, y+21.5)
+	pdf.CellFormat(col3Width, 3.5, order.PaymentModeLabel, "", 0, "L", false, 0, "")
+
+	// ---- Bill To / Ship To / Dispatch (same 3 columns as the row above) ----
+	y = row2Top + 3
+	pdf.SetFont("Helvetica", "B", 8)
+	pdf.SetXY(left+1.5, y)
+	pdf.CellFormat(colA-left-4, 3.5, "Bill To:", "", 0, "L", false, 0, "")
+	pdf.SetXY(left+1.5, y+4)
+	pdf.CellFormat(colA-left-4, 3.5, order.CustomerName, "", 0, "L", false, 0, "")
+	pdf.SetFont("Helvetica", "", 7)
+	pdf.SetXY(left+1.5, y+8)
+	pdf.MultiCell(colA-left-4, 3, order.CustomerAddress, "", "L", false)
+
+	pdf.SetFont("Helvetica", "B", 8)
+	pdf.SetXY(colA+1.5, y)
+	pdf.CellFormat(colB-colA-3, 3.5, "Ship To:", "", 0, "L", false, 0, "")
+	shipName := order.ShippingName
+	if shipName == "" {
+		shipName = order.CustomerName
+	}
+	pdf.SetXY(colA+1.5, y+4)
+	pdf.CellFormat(colB-colA-3, 3.5, shipName, "", 0, "L", false, 0, "")
+	shipAddr := order.ShippingAddress
+	if shipAddr == "" {
+		shipAddr = order.CustomerAddress
+	}
+	pdf.SetFont("Helvetica", "", 7)
+	pdf.SetXY(colA+1.5, y+8)
+	pdf.MultiCell(colB-colA-3, 3, shipAddr, "", "L", false)
+
+	pdf.SetFont("Helvetica", "B", 8)
+	pdf.SetXY(colB+1.5, y)
+	pdf.CellFormat(col3Width, 3.5, "Dispatch Through:", "", 0, "L", false, 0, "")
+	pdf.SetFont("Helvetica", "", 7)
+	pdf.SetXY(colB+1.5, y+4)
+	pdf.CellFormat(col3Width, 3.5, order.DispatchThrough, "", 0, "L", false, 0, "")
+	pdf.SetXY(colB+1.5, y+8)
+	pdf.CellFormat(col3Width, 3.5, "AWB No: "+order.AWBNo, "", 0, "L", false, 0, "")
+	if awbBarcode != "" {
+		pdf.ImageOptions(awbBarcode, colB+1.5, y+12, col3Width-2, 8, false, fpdf.ImageOptions{ImageType: "PNG"}, 0, "")
+	}
+
+	// ---- Grid lines for the whole header block ----
+	pdf.Rect(left, row1Top, contentWidth, row2Bottom-row1Top, "D")
+	pdf.Line(left, row2Top, right, row2Top)
+	pdf.Line(colA, row1Top, colA, row2Bottom)
+	pdf.Line(colB, row1Top, colB, row2Bottom)
+
+	y = row2Bottom + 4
+
+	// ---- Table 1: gross amount / discount / amount, grouped by combo ----
+	t1Cols := []tableColumn{
+		{"Sr", 8, "L"}, {"Product Name", 42, "L"}, {"Product Code", 22, "L"}, {"HSN Code", 18, "L"},
+		{"Qty", 9, "R"}, {"Rate", 17, "R"}, {"Gross Amt\nIncl GST", 20, "R"}, {"Discount", 17, "R"},
+		{"Store\nCredit", 15, "R"}, {"Amount\n(INR)", 22, "R"},
+	}
+
+	totalQty := 0.0
+	for _, l := range lines {
+		totalQty += l.qty
+	}
+
+	t1Rows, t1Bold := buildGroupedRows(combo, order, lines, func(l *lineItem, code string) []string {
+		return []string{"", l.name, code, l.hsn, fmt.Sprintf("%.0f", l.qty), money2(l.rate), money2(l.gross), money2(l.discount), "0.00", money2(l.totalAmount)}
+	})
+	y = drawTable(pdf, left, y, t1Cols, t1Rows, t1Bold,
+		[]string{"", "", "", "", fmt.Sprintf("%.0f", totalQty), "", "", "", "", money2(total)}, 1, "Total:")
+
+	y += 3
+
+	// ---- Table 2: taxable value / GST breakdown, grouped by combo ----
+	pdf.SetFont("Helvetica", "B", 8)
+	pdf.SetXY(left, y)
+	supplyLabel := "Place of Supply: Intra-State (CGST + SGST applicable)"
+	if isInterstate {
+		supplyLabel = "Place of Supply: Inter-State (IGST applicable)"
+	}
+	pdf.CellFormat(contentWidth, 4, supplyLabel, "", 1, "L", false, 0, "")
+	pdf.SetFont("Helvetica", "", 8)
+	pdf.SetXY(left, pdf.GetY())
+	pdf.CellFormat(contentWidth, 4, "*Breakdown of Invoice Value is as follows", "", 1, "L", false, 0, "")
+	y = pdf.GetY() + 1
+
+	var t2Cols []tableColumn
+	if isInterstate {
+		t2Cols = []tableColumn{
+			{"Sr", 8, "L"}, {"Product Name", 42, "L"}, {"Product Code", 22, "L"}, {"HSN Code", 18, "L"},
+			{"Qty", 9, "R"}, {"Taxable\nValue (INR)", 30, "R"}, {"IGST (INR)", 31, "R"}, {"Amount\n(INR)", 30, "R"},
+		}
+	} else {
+		t2Cols = []tableColumn{
+			{"Sr", 8, "L"}, {"Product Name", 42, "L"}, {"Product Code", 22, "L"}, {"HSN Code", 18, "L"},
+			{"Qty", 9, "R"}, {"Taxable\nValue (INR)", 25, "R"}, {"CGST (INR)", 22, "R"}, {"SGST (INR)", 22, "R"}, {"Amount\n(INR)", 22, "R"},
+		}
+	}
+
+	totalTaxable, totalCgst, totalSgst, totalIgst := 0.0, 0.0, 0.0, 0.0
+	for _, l := range lines {
+		totalTaxable += l.taxable
+		totalCgst += l.cgst
+		totalSgst += l.sgst
+		totalIgst += l.igst
+	}
+
+	t2Rows, t2Bold := buildGroupedRows(combo, order, lines, func(l *lineItem, code string) []string {
+		if isInterstate {
+			return []string{"", l.name, code, l.hsn, fmt.Sprintf("%.0f", l.qty), money2(l.taxable),
+				fmt.Sprintf("%s (%.2f%%)", money2(l.igst), l.taxRate), money2(l.totalAmount)}
+		}
+		return []string{"", l.name, code, l.hsn, fmt.Sprintf("%.0f", l.qty), money2(l.taxable),
+			fmt.Sprintf("%s (%.2f%%)", money2(l.cgst), l.taxRate/2), fmt.Sprintf("%s (%.2f%%)", money2(l.sgst), l.taxRate/2), money2(l.totalAmount)}
+	})
+	var totalRow2 []string
+	if isInterstate {
+		totalRow2 = []string{"", "", "", "", fmt.Sprintf("%.0f", totalQty), money2(totalTaxable), money2(totalIgst), money2(total)}
+	} else {
+		totalRow2 = []string{"", "", "", "", fmt.Sprintf("%.0f", totalQty), money2(totalTaxable), money2(totalCgst), money2(totalSgst), money2(total)}
+	}
+	y = drawTable(pdf, left, y, t2Cols, t2Rows, t2Bold, totalRow2, 1, "Total:")
+
+	y += 4
+	pdf.SetFont("Helvetica", "B", 8)
+	pdf.SetXY(left, y)
+	pdf.CellFormat(contentWidth-15, 4, "Amount Chargeable (in words)", "", 0, "L", false, 0, "")
+	pdf.CellFormat(15, 4, "E. & O.E", "", 1, "R", false, 0, "")
+	pdf.SetXY(left, pdf.GetY()+0.5)
+	pdf.MultiCell(contentWidth, 4, "INR "+amountInWordsINR(total), "", "L", false)
+	y = pdf.GetY() + 2
+
+	pdf.SetFont("Helvetica", "", 8)
+	pdf.SetXY(left, y)
+	pdf.CellFormat(contentWidth, 4, "Tax is payable on reverse charge basis: No", "", 1, "L", false, 0, "")
+	y = pdf.GetY() + 1
+	pdf.Line(left, y, right, y)
+	y += 3
+
+	declarationWidth := contentWidth * 0.6
+	pdf.SetFont("Helvetica", "B", 8)
+	pdf.SetXY(left, y)
+	pdf.CellFormat(declarationWidth, 4, "Declaration", "", 1, "L", false, 0, "")
+	pdf.SetFont("Helvetica", "", 7)
+	pdf.SetXY(left, y+5)
+	pdf.MultiCell(declarationWidth, 3.2,
+		"1. This is a computer generated Invoice. Doesn't require signature or stamp.\n"+
+			"2. All figures are shown in INR.\n"+
+			"3. Shipping/Handling charges are inclusive of GST.\n"+
+			"4. All disputes are subject to "+companyinfo.Jurisdiction+" jurisdiction only.",
+		"", "L", false)
+
+	boxX := left + declarationWidth + 8
+	boxWidth := right - boxX
+	pdf.Rect(boxX, y, boxWidth, 28, "D")
+	pdf.SetFont("Helvetica", "B", 8)
+	pdf.SetXY(boxX, y+3)
+	pdf.CellFormat(boxWidth, 4, "For "+companyinfo.CompanyName, "", 0, "C", false, 0, "")
+	pdf.SetFont("Helvetica", "", 7)
+	pdf.SetXY(boxX, y+22)
+	pdf.CellFormat(boxWidth, 4, "Authorised Signatory", "", 0, "C", false, 0, "")
+
+	if companyinfo.FulfillmentPlatform != "" {
+		footerY := 285.0
+		pdf.Rect(left, footerY, contentWidth, 10, "D")
+		pdf.SetFont("Helvetica", "B", 8)
+		pdf.SetXY(left+3, footerY+1.5)
+		pdf.CellFormat(30, 4, "Bill By:", "", 0, "L", false, 0, "")
+		pdf.SetFont("Helvetica", "", 7)
+		pdf.SetXY(left+3, footerY+5.5)
+		pdf.CellFormat(60, 4, "Powered By "+companyinfo.FulfillmentPlatform, "", 0, "L", false, 0, "")
+		pdf.SetXY(left, footerY+3.5)
+		pdf.CellFormat(contentWidth, 4, "This is a computer generated Invoice", "", 0, "C", false, 0, "")
+	}
+
+	return pdf.OutputFileAndClose(path)
+}
+
+func money2(f float64) string {
+	return fmt.Sprintf("%.2f", f)
+}
+
+// multiCellHeight measures how tall text would render at the given width
+// with the pdf's currently-set font, without actually drawing it — used to
+// stack the next block right below variable-height wrapped text.
+func multiCellHeight(pdf *fpdf.Fpdf, width, lineHeight float64, text string) float64 {
+	lines := pdf.SplitLines([]byte(text), width)
+	return float64(len(lines)) * lineHeight
+}
+
+// buildGroupedRows mirrors the reference invoice's bundle layout: a bold
+// combo-header row (name/code/number of sets, no money columns) followed by
+// each real product indented below it with its code in parentheses.
+func buildGroupedRows(combo models.Combo, order models.Order, lines []*lineItem, rowFor func(*lineItem, string) []string) ([][]string, []bool) {
+	var rows [][]string
+	var bold []bool
+
+	header := rowFor(lines[0], "")
+	blankHeader := make([]string, len(header))
+	blankHeader[0] = "1"
+	blankHeader[1] = combo.Name
+	code := combo.Code
+	if code == "" {
+		code = "-"
+	}
+	blankHeader[2] = code
+	blankHeader[3] = "-"
+	blankHeader[4] = fmt.Sprintf("%.0f", order.ComboQuantity)
+	for i := 5; i < len(blankHeader); i++ {
+		blankHeader[i] = ""
+	}
+	rows = append(rows, blankHeader)
+	bold = append(bold, true)
+
+	for _, l := range lines {
+		row := rowFor(l, fmt.Sprintf("(%s)", l.sku))
+		rows = append(rows, row)
+		bold = append(bold, false)
+	}
+	return rows, bold
+}

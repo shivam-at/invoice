@@ -1,0 +1,4 @@
+bin/
+storage/invoices/*.pdf
+config/*.json
+.env

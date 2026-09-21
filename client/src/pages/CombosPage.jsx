@@ -508,11 +508,11 @@ export default function CombosPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {combo.items.map((it) => (
-                    <tr key={it.id}>
-                      <td>{it.name}</td>
+                  {(combo.items || []).map((it) => (
+                    <tr key={it.product_id}>
+                      <td>{it.product.name}</td>
                       <td>{it.quantity}</td>
-                      <td>₹{it.price.toFixed(2)}</td>
+                      <td>₹{it.product.price.toFixed(2)}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -161,6 +161,8 @@ button:disabled { opacity: 0.55; cursor: not-allowed; box-shadow: none; }
   background: var(--primary-light);
   color: var(--primary-dark);
 }
+.badge.success { background: var(--success-bg); color: var(--success-text); }
+.badge.danger { background: var(--error-bg); color: var(--error-text); }
 
 .alert {
   padding: 11px 15px;

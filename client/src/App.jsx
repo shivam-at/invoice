@@ -4,16 +4,12 @@ import CombosPage from "./pages/CombosPage.jsx";
 import NewOrderPage from "./pages/NewOrderPage.jsx";
 import OrdersPage from "./pages/OrdersPage.jsx";
 import OrderDetailPage from "./pages/OrderDetailPage.jsx";
-import InvoicesPage from "./pages/InvoicesPage.jsx";
-import SettingsPage from "./pages/SettingsPage.jsx";
 
 const links = [
   { to: "/orders/new", label: "New Order", icon: "🧾" },
   { to: "/orders", label: "Orders", icon: "📦" },
-  { to: "/invoices", label: "Invoices", icon: "📄" },
   { to: "/combos", label: "Combo Deals", icon: "🎁" },
-  { to: "/products", label: "Products", icon: "💎" },
-  { to: "/settings", label: "Settings", icon: "⚙️" }
+  { to: "/products", label: "Products", icon: "💎" }
 ];
 
 // "/orders" would otherwise match as a prefix of "/orders/new" (and vice versa
@@ -32,7 +28,7 @@ export default function App() {
         <div className="brand">
           <span className="logo">🧾</span>
           <div>
-            <h1>Invoice Generator</h1>
+            <h1>CMD Invoice System</h1>
             <div className="sub">Combo deal invoicing</div>
           </div>
         </div>
@@ -57,8 +53,6 @@ export default function App() {
           <Route path="/orders/new" element={<NewOrderPage />} />
           <Route path="/orders" element={<OrdersPage />} />
           <Route path="/orders/:id" element={<OrderDetailPage />} />
-          <Route path="/invoices" element={<InvoicesPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
         </Routes>
       </main>
     </div>
