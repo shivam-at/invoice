@@ -466,7 +466,7 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 	pdf.MultiCell(contentWidth, 4, "INR "+amountInWordsINR(total), "", "L", false)
 	y = pdf.GetY() + 2
 
-	pdf.SetFont("Helvetica", "", 8)
+	pdf.SetFont("Helvetica", "B", 8)
 	pdf.SetXY(left, y)
 	pdf.CellFormat(contentWidth, 4, "Tax is payable on reverse charge basis: No", "", 1, "L", false, 0, "")
 	y = pdf.GetY() + 1
@@ -474,16 +474,16 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 	y += 3
 
 	declarationWidth := contentWidth * 0.6
-	pdf.SetFont("Helvetica", "B", 8)
+	pdf.SetFont("Helvetica", "BU", 8)
 	pdf.SetXY(left, y)
 	pdf.CellFormat(declarationWidth, 4, "Declaration", "", 1, "L", false, 0, "")
 	pdf.SetFont("Helvetica", "", 7)
 	pdf.SetXY(left, y+5)
 	pdf.MultiCell(declarationWidth, 3.2,
-		"1. This is a computer generated Invoice. Doesn't require signature or stamp.\n"+
-			"2. All figures are shown in INR.\n"+
-			"3. Shipping/Handling charges are inclusive of GST.\n"+
-			"4. All disputes are subject to "+companyinfo.Jurisdiction+" jurisdiction only.",
+		"1.This is a computer generated Invoice.Doesnt require signature or stamp. "+
+			"2. All figures are showing in INR "+
+			"3. Ship/Handling Charges inclusive of GST "+
+			"4. All Disputes are subject to "+companyinfo.Jurisdiction+" jurisdiction only.",
 		"", "L", false)
 
 	boxX := left + declarationWidth + 8
@@ -492,6 +492,13 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 	pdf.SetFont("Helvetica", "B", 8)
 	pdf.SetXY(boxX, y+3)
 	pdf.CellFormat(boxWidth, 4, "For "+companyinfo.CompanyName, "", 0, "C", false, 0, "")
+
+	// A faint oval placeholder where a company seal/stamp would sit on a
+	// physically-signed copy, matching the reference invoice's layout.
+	pdf.SetDrawColor(160, 160, 160)
+	pdf.Ellipse(boxX+boxWidth/2, y+13, 15, 7, 0, "D")
+	pdf.SetDrawColor(0, 0, 0)
+
 	pdf.SetFont("Helvetica", "", 7)
 	pdf.SetXY(boxX, y+22)
 	pdf.CellFormat(boxWidth, 4, "Authorised Signatory", "", 0, "C", false, 0, "")
