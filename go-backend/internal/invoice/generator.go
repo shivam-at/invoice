@@ -463,13 +463,13 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 	y = drawTable(pdf, left, y, t1Cols, t1Rows, t1Bold,
 		[]string{"", "", "", "", fmt.Sprintf("%.0f", totalQty), "", "", "", money2(total)}, 1, "Total:")
 
-	y += 3
+	y += 6
 
 	// ---- Table 2: taxable value / GST breakdown, grouped by combo ----
 	pdf.SetFont("Helvetica", "", 8)
 	pdf.SetXY(left, y)
 	pdf.CellFormat(contentWidth, 4, "*Breakdown of Invoice Value is as follows", "", 1, "L", false, 0, "")
-	y = pdf.GetY() + 1
+	y = pdf.GetY() + 2
 
 	var t2Cols []tableColumn
 	if isInterstate {
@@ -510,7 +510,7 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 	}
 	y = drawTable(pdf, left, y, t2Cols, t2Rows, t2Bold, totalRow2, 1, "Total:")
 
-	y += 4
+	y += 6
 	pdf.SetFont("Helvetica", "B", 8)
 	pdf.SetXY(left, y)
 	pdf.CellFormat(contentWidth-15, 4, "Amount Chargeable (in words)", "", 0, "L", false, 0, "")
