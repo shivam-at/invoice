@@ -190,7 +190,7 @@ func (r *Repository) ListCombos(ctx context.Context, search string, unverifiedOn
 
 	if len(ids) > 0 {
 		itemRows, err := r.pool.Query(ctx, `
-			SELECT ci.combo_id, ci.product_id, ci.quantity, p.sku, p.name, p.price, p.tax_rate
+			SELECT ci.combo_id, ci.product_id, ci.quantity, COALESCE(p.sku,''), p.name, p.price, p.tax_rate
 			FROM combo_items ci JOIN products p ON p.id = ci.product_id
 			WHERE ci.combo_id = ANY($1)
 		`, ids)

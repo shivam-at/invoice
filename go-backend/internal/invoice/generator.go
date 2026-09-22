@@ -250,8 +250,11 @@ func applyDiscount(lines []*lineItem, sumGross, discountTotal float64, isInterst
 	}
 }
 
+// round2 rounds to 2 decimal places, correctly for negative values too
+// (the previous "add 0.5 then truncate" trick only rounds positive numbers
+// correctly — it rounds negative ones toward zero instead of to nearest).
 func round2(f float64) float64 {
-	return float64(int64(f*100+0.5)) / 100
+	return math.Round(f*100) / 100
 }
 
 func formatDate(t time.Time) string {

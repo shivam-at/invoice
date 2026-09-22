@@ -191,6 +191,14 @@ func (a *api) createCombo(w http.ResponseWriter, r *http.Request) {
 	if discountType != "percent" && discountType != "fixed" {
 		discountType = "none"
 	}
+	if discountType == "percent" && (req.DiscountValue < 0 || req.DiscountValue > 100) {
+		httpError(w, http.StatusBadRequest, "a percent discount must be between 0 and 100")
+		return
+	}
+	if discountType == "fixed" && req.DiscountValue < 0 {
+		httpError(w, http.StatusBadRequest, "discount_value cannot be negative")
+		return
+	}
 
 	var productIDs []int64
 	qtyByProduct := map[int64]float64{}
