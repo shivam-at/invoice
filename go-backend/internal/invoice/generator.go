@@ -291,8 +291,8 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 	row1Top := 16.0
 	row2Top := 74.0
 	row2Bottom := 105.0
-	colA := left + contentWidth*0.42
-	colB := left + contentWidth*0.72
+	colA := left + contentWidth*0.29
+	colB := left + contentWidth*0.635
 
 	orderBarcode := registerBarcode(pdf, "order", order.ShopifyOrderNo)
 	awbBarcode := registerBarcode(pdf, "awb", order.AWBNo)
