@@ -431,6 +431,10 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 	pdf.Line(left, row2Top, right, row2Top)
 	pdf.Line(colA, row1Top, colA, row2Bottom)
 	pdf.Line(colB, row1Top, colB, row2Bottom)
+	// A divider under Invoice No/Invoice Date, separating them from the
+	// Order No/barcode + Portal content below — spans columns B and C only
+	// (column A has its own separate BILL FROM/Shipped From divider).
+	pdf.Line(colA, row1Top+11, right, row1Top+11)
 
 	y = row2Bottom + 4
 
