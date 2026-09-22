@@ -536,9 +536,9 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 	pdf.SetFont("Helvetica", "", 7)
 	pdf.SetXY(left, y+5)
 	pdf.MultiCell(declarationWidth, 3.2,
-		"1.This is a computer generated Invoice.Doesnt require signature or stamp. "+
-			"2. All figures are showing in INR "+
-			"3. Ship/Handling Charges inclusive of GST "+
+		"1.This is a computer generated Invoice.Doesnt require signature or stamp.\n"+
+			"2. All figures are showing in INR\n"+
+			"3. Ship/Handling Charges inclusive of GST\n"+
 			"4. All Disputes are subject to "+companyinfo.Jurisdiction+" jurisdiction only.",
 		"", "L", false)
 
