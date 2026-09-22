@@ -569,7 +569,7 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 
 	if companyinfo.FulfillmentPlatform != "" {
 		footerY := 285.0
-		footerDividerX := left + contentWidth*0.32
+		footerDividerX := boxX
 		pdf.Rect(left, footerY, contentWidth, 10, "D")
 		// Splits the box into a "Bill By / Powered By" cell on the left and
 		// "This is a computer generated Invoice" cell on the right, and a
