@@ -323,3 +323,44 @@ func (r *Repository) CountByStatus(ctx context.Context, status string) (int, err
 	err := r.pool.QueryRow(ctx, `SELECT count(*) FROM orders WHERE status = $1`, status).Scan(&n)
 	return n, err
 }
+
+// ResetAllOrders wipes every invoice/print_job (print_jobs cascades from
+// invoices) and flips every order back to PENDING, so the whole pipeline can
+// be replayed from scratch — e.g. for a live demo. Nothing unique is lost:
+// invoice numbers and PDFs are deterministic from the order row, so
+// re-running the pipeline reproduces the same invoices. Returns the PDF
+// paths that existed (for the caller to unlink from disk) and how many
+// orders were reset.
+func (r *Repository) ResetAllOrders(ctx context.Context) (pdfPaths []string, resetCount int, err error) {
+	rows, err := r.pool.Query(ctx, `SELECT pdf_path FROM invoices WHERE pdf_path IS NOT NULL AND pdf_path <> ''`)
+	if err != nil {
+		return nil, 0, err
+	}
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			rows.Close()
+			return nil, 0, err
+		}
+		pdfPaths = append(pdfPaths, p)
+	}
+	rows.Close()
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, `DELETE FROM invoices`); err != nil {
+		return nil, 0, err
+	}
+	tag, err := tx.Exec(ctx, `UPDATE orders SET status = $1, updated_at = now()`, models.OrderPending)
+	if err != nil {
+		return nil, 0, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, 0, err
+	}
+	return pdfPaths, int(tag.RowsAffected()), nil
+}

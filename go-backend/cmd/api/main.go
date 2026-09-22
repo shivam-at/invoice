@@ -66,6 +66,7 @@ func main() {
 	mux.HandleFunc("GET /api/orders/{id}/pdf", a.getOrderPDF)
 	mux.HandleFunc("POST /api/orders/identify-cmd", a.identifyCMD)
 	mux.HandleFunc("POST /api/orders/import-google-sheet", a.importOrdersFromSheet)
+	mux.HandleFunc("POST /api/orders/reset-all", a.resetAllOrders)
 	mux.HandleFunc("GET /api/stats", a.stats)
 
 	mux.HandleFunc("GET /api/products", a.listProducts)
@@ -230,6 +231,30 @@ func (a *api) identifyCMD(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"enqueued": n})
+}
+
+// resetAllOrders wipes every invoice/print job and flips every order back
+// to PENDING so the whole pipeline can be replayed from scratch (e.g. for a
+// live demo) — requires an explicit confirm:true so it's never triggered by
+// accident.
+func (a *api) resetAllOrders(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Confirm bool `json:"confirm"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if !req.Confirm {
+		httpError(w, http.StatusBadRequest, "confirm: true is required to reset all orders")
+		return
+	}
+	paths, count, err := a.svc.ResetAllOrders(r.Context())
+	if err != nil {
+		httpError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	for _, p := range paths {
+		_ = os.Remove(p)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"reset": count})
 }
 
 func (a *api) stats(w http.ResponseWriter, r *http.Request) {

@@ -23,6 +23,7 @@ export default function OrdersPage() {
   const [stats, setStats] = useState(null);
   const [error, setError] = useState("");
   const [running, setRunning] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   const [sheetUrl, setSheetUrl] = useState(() => {
     try {
@@ -87,6 +88,25 @@ export default function OrdersPage() {
       setError(err.response?.data?.error || err.message);
     } finally {
       setRunning(false);
+    }
+  };
+
+  const runReset = async () => {
+    const sure = window.confirm(
+      `This resets ALL ${total.toLocaleString()} orders back to PENDING and deletes every invoice PDF, so the pipeline ` +
+        "can regenerate everything from scratch (useful for a live demo). Nothing unique is lost — invoice numbers " +
+        "and PDFs are deterministic from the order data, so this is safe to re-run. Continue?"
+    );
+    if (!sure) return;
+    setResetting(true);
+    setError("");
+    try {
+      await OrdersApi.resetAll();
+      load();
+    } catch (err) {
+      setError(err.response?.data?.error || err.message);
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -187,9 +207,14 @@ export default function OrdersPage() {
                 </span>
               ))}
             </div>
-            <button className="secondary" onClick={runIdentify} disabled={running}>
-              {running ? "Running..." : "Process pending orders"}
-            </button>
+            <div className="row" style={{ gap: 8 }}>
+              <button className="secondary" onClick={runIdentify} disabled={running}>
+                {running ? "Running..." : "Process pending orders"}
+              </button>
+              <button className="secondary" onClick={runReset} disabled={resetting} title="Reset every order back to PENDING and regenerate all invoices from scratch">
+                {resetting ? "Resetting..." : "Reset All & Regenerate"}
+              </button>
+            </div>
           </div>
         </div>
       )}
