@@ -288,7 +288,7 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 
 	pdf.SetFont("Helvetica", "", 7)
 	pdf.SetXY(colA+colBHalf+1.5, y)
-	pdf.CellFormat(colBHalf-3, 3.5, "Invoice Date:", "", 0, "L", false, 0, "")
+	pdf.CellFormat(colBHalf-3, 3.5, "Invoice Date", "", 0, "L", false, 0, "")
 	pdf.SetFont("Helvetica", "B", 7)
 	pdf.SetXY(colA+colBHalf+1.5, y+4)
 	pdf.CellFormat(colBHalf-3, 3.5, formatDate(order.CreatedAt), "", 0, "L", false, 0, "")
