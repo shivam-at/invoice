@@ -248,7 +248,7 @@ func (r *Repository) GetComboItems(ctx context.Context, comboID int64) ([]models
 	}
 
 	rows, err := r.pool.Query(ctx, `
-		SELECT ci.combo_id, ci.product_id, ci.quantity, p.sku, p.name, p.hsn_code, p.price, p.tax_rate
+		SELECT ci.combo_id, ci.product_id, ci.quantity, COALESCE(p.sku,''), p.name, COALESCE(p.hsn_code,''), p.price, p.tax_rate
 		FROM combo_items ci JOIN products p ON p.id = ci.product_id
 		WHERE ci.combo_id = $1
 	`, comboID)
