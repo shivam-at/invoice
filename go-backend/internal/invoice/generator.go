@@ -322,24 +322,24 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 	pdf.SetXY(left+1.5, dividerY+6)
 	pdf.MultiCell(colA-left-4, 3, companyinfo.ShippedFromAddress, "", "L", false)
 
-	// Invoice No (left half) and Invoice Date (right half) sit side by side
-	// at the top of the middle column, matching the reference layout —
-	// Order No/Order Date + barcode are centered below, spanning the full
-	// column width.
-	colBHalf := (colB - colA) / 2
+	// Invoice No sits at the top of the middle column (full width), and
+	// Invoice Date at the top of the right column — the same column split
+	// used by Order No/barcode (middle) and Portal (right) below them, not
+	// a half-and-half split of the middle column alone.
+	col3Width := right - colB - 3
 	pdf.SetFont("Helvetica", "", 7)
 	pdf.SetXY(colA+1.5, y)
-	pdf.CellFormat(colBHalf-3, 3.5, "Invoice No:", "", 0, "L", false, 0, "")
+	pdf.CellFormat(colB-colA-3, 3.5, "Invoice No:", "", 0, "L", false, 0, "")
 	pdf.SetFont("Helvetica", "B", 7)
 	pdf.SetXY(colA+1.5, y+4)
-	pdf.CellFormat(colBHalf-3, 3.5, invNo, "", 0, "L", false, 0, "")
+	pdf.CellFormat(colB-colA-3, 3.5, invNo, "", 0, "L", false, 0, "")
 
 	pdf.SetFont("Helvetica", "", 7)
-	pdf.SetXY(colA+colBHalf+1.5, y)
-	pdf.CellFormat(colBHalf-3, 3.5, "Invoice Date", "", 0, "L", false, 0, "")
+	pdf.SetXY(colB+1.5, y)
+	pdf.CellFormat(col3Width, 3.5, "Invoice Date", "", 0, "L", false, 0, "")
 	pdf.SetFont("Helvetica", "B", 7)
-	pdf.SetXY(colA+colBHalf+1.5, y+4)
-	pdf.CellFormat(colBHalf-3, 3.5, formatDate(order.CreatedAt), "", 0, "L", false, 0, "")
+	pdf.SetXY(colB+1.5, y+4)
+	pdf.CellFormat(col3Width, 3.5, formatDate(order.CreatedAt), "", 0, "L", false, 0, "")
 
 	pdf.SetFont("Helvetica", "B", 8)
 	pdf.SetXY(colA+1.5, y+10)
@@ -358,7 +358,6 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 	// the top like the other two — and "Portal:" is a regular-weight label
 	// followed by a bold value, so it's laid out as two adjacent cells
 	// (measured and centered as one line) rather than one CellFormat call.
-	col3Width := right - colB - 3
 	col3CenterY := row1Top + 20
 	portalLabel := "Portal: "
 	pdf.SetFont("Helvetica", "", 7)
