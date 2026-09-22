@@ -296,15 +296,32 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 		pdf.CellFormat(colB-colA-3, 3.5, order.ShopifyOrderNo, "", 0, "C", false, 0, "")
 	}
 
+	// This block sits vertically centered in its tall column, not pinned to
+	// the top like the other two — and "Portal:" is a regular-weight label
+	// followed by a bold value, so it's laid out as two adjacent cells
+	// (measured and centered as one line) rather than one CellFormat call.
 	col3Width := right - colB - 3
+	col3CenterY := row1Top + 20
+	portalLabel := "Portal: "
 	pdf.SetFont("Helvetica", "", 7)
-	pdf.SetXY(colB+1.5, y)
-	pdf.CellFormat(col3Width, 3.5, "Portal: "+order.Portal, "", 0, "L", false, 0, "")
-	pdf.SetXY(colB+1.5, y+5)
-	pdf.CellFormat(col3Width, 3.5, "Payment Mode: "+order.PaymentModeCode, "", 0, "L", false, 0, "")
+	labelWidth := pdf.GetStringWidth(portalLabel)
 	pdf.SetFont("Helvetica", "B", 7)
-	pdf.SetXY(colB+1.5, y+8.5)
-	pdf.CellFormat(col3Width, 3.5, order.PaymentModeLabel, "", 0, "L", false, 0, "")
+	valueWidth := pdf.GetStringWidth(order.Portal)
+	portalStartX := colB + 1.5 + (col3Width-(labelWidth+valueWidth))/2
+
+	pdf.SetFont("Helvetica", "", 7)
+	pdf.SetXY(portalStartX, col3CenterY)
+	pdf.CellFormat(labelWidth, 3.5, portalLabel, "", 0, "L", false, 0, "")
+	pdf.SetFont("Helvetica", "B", 7)
+	pdf.SetXY(portalStartX+labelWidth, col3CenterY)
+	pdf.CellFormat(valueWidth, 3.5, order.Portal, "", 0, "L", false, 0, "")
+
+	pdf.SetFont("Helvetica", "", 7)
+	pdf.SetXY(colB+1.5, col3CenterY+5)
+	pdf.CellFormat(col3Width, 3.5, "Payment Mode: "+order.PaymentModeCode, "", 0, "C", false, 0, "")
+	pdf.SetFont("Helvetica", "B", 7)
+	pdf.SetXY(colB+1.5, col3CenterY+8.5)
+	pdf.CellFormat(col3Width, 3.5, order.PaymentModeLabel, "", 0, "C", false, 0, "")
 
 	// ---- Bill To / Ship To / Dispatch (same 3 columns as the row above) ----
 	y = row2Top + 3
