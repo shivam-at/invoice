@@ -14,6 +14,7 @@ import (
 	"github.com/go-pdf/fpdf"
 
 	"invoice-system/internal/companyinfo"
+	"invoice-system/internal/gststates"
 	"invoice-system/internal/models"
 	"invoice-system/internal/orders"
 )
@@ -210,6 +211,16 @@ func formatDate(t time.Time) string {
 	return t.Format("02-Jan-2006")
 }
 
+// fullAddressBlock appends the state name+code and country, then a blank
+// phone line, matching the reference invoice's Bill To/Ship To format —
+// e.g. "...JHANSI-284001 Uttar Pradesh (09)\n,India\nT :".
+func fullAddressBlock(address, stateCode string) string {
+	if name := gststates.Name(stateCode); name != "" {
+		address += " " + name + " (" + stateCode + ")"
+	}
+	return address + "\n,India\nT :"
+}
+
 const (
 	pageMargin = 10.0 // mm
 	pageWidth  = 210.0
@@ -332,7 +343,7 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 	pdf.CellFormat(colA-left-4, 3.5, order.CustomerName, "", 0, "L", false, 0, "")
 	pdf.SetFont("Helvetica", "", 7)
 	pdf.SetXY(left+1.5, y+8)
-	pdf.MultiCell(colA-left-4, 3, order.CustomerAddress, "", "L", false)
+	pdf.MultiCell(colA-left-4, 3, fullAddressBlock(order.CustomerAddress, order.CustomerStateCode), "", "L", false)
 
 	pdf.SetFont("Helvetica", "B", 8)
 	pdf.SetXY(colA+1.5, y)
@@ -349,7 +360,7 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 	}
 	pdf.SetFont("Helvetica", "", 7)
 	pdf.SetXY(colA+1.5, y+8)
-	pdf.MultiCell(colB-colA-3, 3, shipAddr, "", "L", false)
+	pdf.MultiCell(colB-colA-3, 3, fullAddressBlock(shipAddr, order.CustomerStateCode), "", "L", false)
 
 	pdf.SetFont("Helvetica", "B", 8)
 	pdf.SetXY(colB+1.5, y)

@@ -179,7 +179,10 @@ func (r *Repository) importOneOrder(ctx context.Context, orderCode string, rows 
 		return fmt.Errorf("could not map shipping state %q to a GST state code", stateName)
 	}
 
-	addressParts := []string{orderCell(first, col.shipLine1), orderCell(first, col.shipLine2), orderCell(first, col.shipCity)}
+	// The reference invoice puts "City-Pincode" (no spaces around the
+	// hyphen) on its own line, separate from the street address lines —
+	// not folded into one comma-joined string.
+	addressParts := []string{orderCell(first, col.shipLine1), orderCell(first, col.shipLine2)}
 	var nonEmpty []string
 	for _, p := range addressParts {
 		if p != "" {
@@ -187,8 +190,16 @@ func (r *Repository) importOneOrder(ctx context.Context, orderCode string, rows 
 		}
 	}
 	address := strings.Join(nonEmpty, ", ")
+
+	cityPin := orderCell(first, col.shipCity)
 	if pin := orderCell(first, col.shipPincode); pin != "" {
-		address += " - " + pin
+		cityPin += "-" + pin
+	}
+	if cityPin != "" {
+		if address != "" {
+			address += "\n"
+		}
+		address += cityPin
 	}
 
 	paymentCode, paymentLabel := "P1", "PREPAID"
