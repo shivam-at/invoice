@@ -8,7 +8,7 @@ package companyinfo
 
 const (
 	CompanyName         = "Maskyeti Solutions Pvt Ltd"
-	CompanyAddress      = "Plot No-4, Sector 44 Road, Sector 44, Gurugram, Gurugram - 122003, Haryana (06), India"
+	CompanyAddress      = "Plot No-4, Sector 44 Road,Sector 44,\nGurugram\nGurugram - 122003\nHaryana (06) ,India"
 	CompanyGSTIN        = "06AALCM1506H1ZO"
 	CompanyStateCode    = "06" // first 2 digits of the GSTIN — decides CGST+SGST vs IGST
 	ShippedFromAddress  = "2nd floor, Khasra No.20//1/1,10/2,11,21//6,15,Khewat/Khata No.155/164, Fazilpur, Jharsa, Gurgaon - 122101, Haryana (06), India"
