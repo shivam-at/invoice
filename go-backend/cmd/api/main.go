@@ -121,8 +121,12 @@ func (a *api) createOrder(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if req.ComboID == 0 || req.CustomerName == "" || req.OrderNo == "" {
-		httpError(w, http.StatusBadRequest, "order_no, combo_id and customer_name are required")
+	if req.CustomerName == "" || req.OrderNo == "" {
+		httpError(w, http.StatusBadRequest, "order_no and customer_name are required")
+		return
+	}
+	if req.ComboID == 0 && len(req.ExtraItems) == 0 {
+		httpError(w, http.StatusBadRequest, "either combo_id or at least one extra item is required")
 		return
 	}
 	if req.CustomerStateCode == "" {
@@ -145,8 +149,13 @@ func (a *api) createOrder(w http.ResponseWriter, r *http.Request) {
 		extraItems = append(extraItems, models.OrderExtraItem{ProductID: it.ProductID, Quantity: it.Quantity, UnitPrice: it.UnitPrice})
 	}
 
+	var comboID *int64
+	if req.ComboID != 0 {
+		comboID = &req.ComboID
+	}
+
 	id, err := a.svc.CreateOrder(r.Context(), models.Order{
-		OrderNo: req.OrderNo, ComboID: req.ComboID, ComboQuantity: req.ComboQuantity,
+		OrderNo: req.OrderNo, ComboID: comboID, ComboQuantity: req.ComboQuantity,
 		CustomerName: req.CustomerName, CustomerAddress: req.CustomerAddress, CustomerStateCode: req.CustomerStateCode,
 		ShopifyOrderNo: req.ShopifyOrderNo, Portal: req.Portal, PaymentModeCode: req.PaymentModeCode,
 		PaymentModeLabel: req.PaymentModeLabel, DispatchThrough: req.DispatchThrough, AWBNo: req.AWBNo,

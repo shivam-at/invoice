@@ -142,31 +142,32 @@ func (r *Repository) importOneOrder(ctx context.Context, orderCode string, rows 
 			comboCodeCounts[bc]++
 		}
 	}
-	if len(comboCodeCounts) == 0 {
-		return fmt.Errorf("no Bundle SKU Code Number found on any line item")
-	}
 	if len(comboCodeCounts) > 1 {
 		return fmt.Errorf("order references %d different combo codes — multi-combo orders aren't supported yet", len(comboCodeCounts))
 	}
-	var comboCode string
-	for c := range comboCodeCounts {
-		comboCode = c
-	}
 
-	comboID, found, err := catalogRepo.FindComboByCode(ctx, comboCode)
-	if err != nil {
-		return fmt.Errorf("lookup combo: %w", err)
-	}
-	if !found {
-		return fmt.Errorf("combo %s not found in catalog", comboCode)
-	}
-	comboItems, _, err := r.GetComboItems(ctx, comboID)
-	if err != nil {
-		return fmt.Errorf("load combo items: %w", err)
-	}
+	// Every order gets invoiced now, not just combo orders — a plain,
+	// single/multi-product order with no Bundle SKU Code Number becomes an
+	// order with combo_id = nil, and every one of its line items becomes a
+	// standalone extra item instead of a combo component.
+	var comboIDPtr *int64
 	comboSKUs := map[string]bool{}
-	for _, it := range comboItems {
-		comboSKUs[it.Product.SKU] = true
+	for c := range comboCodeCounts {
+		comboID, found, err := catalogRepo.FindComboByCode(ctx, c)
+		if err != nil {
+			return fmt.Errorf("lookup combo: %w", err)
+		}
+		if !found {
+			return fmt.Errorf("combo %s not found in catalog", c)
+		}
+		comboItems, _, err := r.GetComboItems(ctx, comboID)
+		if err != nil {
+			return fmt.Errorf("load combo items: %w", err)
+		}
+		for _, it := range comboItems {
+			comboSKUs[it.Product.SKU] = true
+		}
+		comboIDPtr = &comboID
 	}
 
 	first := rows[0]
@@ -198,7 +199,7 @@ func (r *Repository) importOneOrder(ctx context.Context, orderCode string, rows 
 	}
 
 	order := models.Order{
-		OrderNo: orderCode, ComboID: comboID, ComboQuantity: 1,
+		OrderNo: orderCode, ComboID: comboIDPtr, ComboQuantity: 1,
 		CustomerName: orderCell(first, col.shipName), CustomerAddress: address, CustomerStateCode: stateCode,
 		ShopifyOrderNo: orderCode, Portal: orderCell(first, col.channelName),
 		PaymentModeCode: paymentCode, PaymentModeLabel: paymentLabel,

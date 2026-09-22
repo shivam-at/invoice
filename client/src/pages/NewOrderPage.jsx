@@ -46,24 +46,28 @@ export default function NewOrderPage() {
   const submit = async (e) => {
     e.preventDefault();
     setError("");
-    if (!comboId || !customerName || !orderNo) {
-      setError("Order No, combo and customer name are required");
+    if (!customerName || !orderNo) {
+      setError("Order No and customer name are required");
+      return;
+    }
+    const validExtraItems = extraItems.filter((it) => it.product);
+    if (!comboId && validExtraItems.length === 0) {
+      setError("Pick a combo, or add at least one item — every order needs one or the other.");
       return;
     }
     if (!customerStateCode) {
       setError("Customer State is required — it decides CGST+SGST vs IGST and can't be guessed.");
       return;
     }
-    const validExtraItems = extraItems.filter((it) => it.product);
     if (validExtraItems.some((it) => it.unitPrice === "" || Number(it.unitPrice) < 0)) {
-      setError("Every extra item needs a unit price (0 or more).");
+      setError("Every item needs a unit price (0 or more).");
       return;
     }
     setSubmitting(true);
     try {
       const created = await OrdersApi.create({
         order_no: orderNo,
-        combo_id: Number(comboId),
+        combo_id: comboId ? Number(comboId) : undefined,
         combo_quantity: Number(comboQuantity) || 1,
         customer_name: customerName,
         customer_address: customerAddress,
@@ -89,8 +93,9 @@ export default function NewOrderPage() {
     <div>
       <h2>New Order</h2>
       <p className="muted">
-        Pick a combo deal and customer details. The order is created as PENDING, then handed to the invoice-generation
-        and print worker pools automatically — this page will jump to the order's status once it's queued.
+        Pick a combo deal, or leave it blank and add plain items below instead — every order gets invoiced either way.
+        The order is created as PENDING, then handed to the invoice-generation and print worker pools automatically —
+        this page will jump to the order's status once it's queued.
       </p>
       {error && <div className="alert error">{error}</div>}
 
@@ -106,7 +111,7 @@ export default function NewOrderPage() {
               <input type="number" min="1" value={comboQuantity} onChange={(e) => setComboQuantity(e.target.value)} />
             </div>
             <div>
-              <label>Combo Deal ({combos.length} available)</label>
+              <label>Combo Deal (optional — {combos.length} available)</label>
               <input
                 value={comboFilter}
                 onChange={(e) => setComboFilter(e.target.value)}
@@ -174,9 +179,13 @@ export default function NewOrderPage() {
           )}
 
           <div style={{ marginTop: 16 }}>
-            <h4 style={{ marginBottom: 8 }}>Extra Items (optional — e.g. a free gift bundled onto this order)</h4>
+            <h4 style={{ marginBottom: 8 }}>
+              {comboId ? "Extra Items (optional — e.g. a free gift bundled onto this order)" : "Order Items (required — no combo selected)"}
+            </h4>
             <p className="muted" style={{ marginTop: -4 }}>
-              These are NOT part of the combo — they print as their own line on the invoice, not indented under it.
+              {comboId
+                ? "These are NOT part of the combo — they print as their own line on the invoice, not indented under it."
+                : "This order has no combo, so these items ARE the order — add at least one."}
             </p>
             {extraItems.map((item, idx) => (
               <div className="extra-item-row" key={idx}>

@@ -188,7 +188,7 @@ export default function OrdersPage() {
               ))}
             </div>
             <button className="secondary" onClick={runIdentify} disabled={running}>
-              {running ? "Running..." : "Process pending CMD orders"}
+              {running ? "Running..." : "Process pending orders"}
             </button>
           </div>
         </div>

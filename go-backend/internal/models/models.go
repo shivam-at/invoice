@@ -59,7 +59,7 @@ const (
 type Order struct {
 	ID                int64     `json:"id"`
 	OrderNo           string    `json:"order_no"`
-	ComboID           int64     `json:"combo_id"`
+	ComboID           *int64    `json:"combo_id"`
 	ComboQuantity     float64   `json:"combo_quantity"`
 	CustomerName      string    `json:"customer_name"`
 	CustomerAddress   string    `json:"customer_address"`

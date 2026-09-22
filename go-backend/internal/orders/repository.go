@@ -21,15 +21,23 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 }
 
 // CreateOrder inserts a new order (plus any standalone extra items, e.g.
-// free gifts — see models.OrderExtraItem) in one transaction, deciding
-// IsCMD from whether the combo's code starts with "CMB" (the existing
-// combo-SKU convention this whole pipeline exists to fast-track).
+// free gifts, or — for an order with no combo at all — its only items —
+// see models.OrderExtraItem) in one transaction. Every order gets invoiced
+// now, combo or not; IsCMD is purely informational, decided from whether
+// the combo's code starts with "CMB" (the existing combo-SKU convention).
 func (r *Repository) CreateOrder(ctx context.Context, o models.Order, extraItems []models.OrderExtraItem) (int64, error) {
-	var comboCode string
-	if err := r.pool.QueryRow(ctx, `SELECT code FROM combos WHERE id = $1`, o.ComboID).Scan(&comboCode); err != nil {
-		return 0, fmt.Errorf("lookup combo: %w", err)
+	if o.ComboID == nil && len(extraItems) == 0 {
+		return 0, fmt.Errorf("order needs either a combo or at least one item")
 	}
-	isCMD := len(comboCode) >= 3 && comboCode[:3] == "CMB"
+
+	isCMD := false
+	if o.ComboID != nil {
+		var comboCode string
+		if err := r.pool.QueryRow(ctx, `SELECT code FROM combos WHERE id = $1`, *o.ComboID).Scan(&comboCode); err != nil {
+			return 0, fmt.Errorf("lookup combo: %w", err)
+		}
+		isCMD = len(comboCode) >= 3 && comboCode[:3] == "CMB"
+	}
 
 	shopifyOrderNo := orDefault(o.ShopifyOrderNo, companyinfo.DefaultOrderNo)
 	portal := orDefault(o.Portal, companyinfo.DefaultPortal)
@@ -182,9 +190,11 @@ func (r *Repository) ListOrders(ctx context.Context, search string, page, pageSi
 	return OrderPage{Items: out, Total: total}, nil
 }
 
-// ClaimCMDOrders atomically selects up to `limit` PENDING CMD orders and
-// flips them to QUEUED in the same transaction (FOR UPDATE SKIP LOCKED), so
-// two concurrent "identify" calls never both grab the same order.
+// ClaimCMDOrders atomically selects up to `limit` PENDING orders (every
+// order gets invoiced now, not just combo/CMD ones — is_cmd is kept only as
+// an informational flag) and flips them to QUEUED in the same transaction
+// (FOR UPDATE SKIP LOCKED), so two concurrent "identify" calls never both
+// grab the same order.
 func (r *Repository) ClaimCMDOrders(ctx context.Context, limit int) ([]int64, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -194,7 +204,7 @@ func (r *Repository) ClaimCMDOrders(ctx context.Context, limit int) ([]int64, er
 
 	rows, err := tx.Query(ctx, `
 		SELECT id FROM orders
-		WHERE is_cmd = true AND status = $1
+		WHERE status = $1
 		ORDER BY created_at
 		LIMIT $2
 		FOR UPDATE SKIP LOCKED

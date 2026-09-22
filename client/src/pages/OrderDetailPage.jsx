@@ -105,7 +105,7 @@ export default function OrderDetailPage() {
 
       {extraItems.length > 0 && (
         <div className="card">
-          <h3>Extra Items (not part of the combo)</h3>
+          <h3>{order.combo_id ? "Extra Items (not part of the combo)" : "Order Items"}</h3>
           <table>
             <thead>
               <tr>

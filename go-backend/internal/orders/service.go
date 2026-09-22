@@ -32,9 +32,9 @@ func (s *Service) GetOrder(ctx context.Context, id int64) (models.Order, error) 
 }
 
 // IdentifyAndEnqueueCMDOrders is the entry point of the whole pipeline: find
-// PENDING orders whose combo code starts with CMB, claim them (flip to
-// QUEUED so nobody else grabs them), and push one invoice-generation job
-// per order onto Redis. Returns how many were enqueued.
+// PENDING orders (every order gets invoiced now, combo or not), claim them
+// (flip to QUEUED so nobody else grabs them), and push one invoice-generation
+// job per order onto Redis. Returns how many were enqueued.
 func (s *Service) IdentifyAndEnqueueCMDOrders(ctx context.Context, limit int) (int, error) {
 	ids, err := s.repo.ClaimCMDOrders(ctx, limit)
 	if err != nil {

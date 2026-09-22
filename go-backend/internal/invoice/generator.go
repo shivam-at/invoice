@@ -61,17 +61,24 @@ func (g *Generator) Generate(ctx context.Context, orderID int64) (models.Invoice
 		return models.Invoice{}, fmt.Errorf("get order: %w", err)
 	}
 
-	items, combo, err := g.repo.GetComboItems(ctx, order.ComboID)
-	if err != nil {
-		return models.Invoice{}, fmt.Errorf("get combo items: %w", err)
-	}
-	if len(items) == 0 {
-		return models.Invoice{}, fmt.Errorf("combo %d has no items", order.ComboID)
+	var items []models.ComboItem
+	var combo models.Combo
+	if order.ComboID != nil {
+		items, combo, err = g.repo.GetComboItems(ctx, *order.ComboID)
+		if err != nil {
+			return models.Invoice{}, fmt.Errorf("get combo items: %w", err)
+		}
+		if len(items) == 0 {
+			return models.Invoice{}, fmt.Errorf("combo %d has no items", *order.ComboID)
+		}
 	}
 
 	extraItems, err := g.repo.GetOrderExtraItems(ctx, orderID)
 	if err != nil {
 		return models.Invoice{}, fmt.Errorf("get extra items: %w", err)
+	}
+	if order.ComboID == nil && len(extraItems) == 0 {
+		return models.Invoice{}, fmt.Errorf("order %d has no combo and no items", orderID)
 	}
 
 	isInterstate := order.CustomerStateCode != "" && order.CustomerStateCode != companyinfo.CompanyStateCode
@@ -473,36 +480,40 @@ func multiCellHeight(pdf *fpdf.Fpdf, width, lineHeight float64, text string) flo
 // combo-header row (name/code/number of sets, no money columns) followed by
 // each real combo product indented below it with its code in parentheses,
 // then any standalone extra items (e.g. a "FREE GIFT" bundled onto this
-// specific order) as their own full top-level Sr rows — not indented, since
-// they aren't part of the combo.
+// specific order, or — for an order with no combo at all — its only items)
+// as their own full top-level Sr rows — not indented, since they aren't
+// part of the combo.
 func buildGroupedRows(combo models.Combo, order models.Order, lines []*lineItem, extraLines []*lineItem, rowFor func(*lineItem, string) []string) ([][]string, []bool) {
 	var rows [][]string
 	var bold []bool
 
-	header := rowFor(lines[0], "")
-	blankHeader := make([]string, len(header))
-	blankHeader[0] = "1"
-	blankHeader[1] = combo.Name
-	code := combo.Code
-	if code == "" {
-		code = "-"
-	}
-	blankHeader[2] = code
-	blankHeader[3] = ""
-	blankHeader[4] = fmt.Sprintf("%.0f", order.ComboQuantity)
-	for i := 5; i < len(blankHeader); i++ {
-		blankHeader[i] = ""
-	}
-	rows = append(rows, blankHeader)
-	bold = append(bold, true)
+	sr := 1
+	if len(lines) > 0 {
+		header := rowFor(lines[0], "")
+		blankHeader := make([]string, len(header))
+		blankHeader[0] = "1"
+		blankHeader[1] = combo.Name
+		code := combo.Code
+		if code == "" {
+			code = "-"
+		}
+		blankHeader[2] = code
+		blankHeader[3] = ""
+		blankHeader[4] = fmt.Sprintf("%.0f", order.ComboQuantity)
+		for i := 5; i < len(blankHeader); i++ {
+			blankHeader[i] = ""
+		}
+		rows = append(rows, blankHeader)
+		bold = append(bold, true)
 
-	for _, l := range lines {
-		row := rowFor(l, fmt.Sprintf("(%s)", l.sku))
-		rows = append(rows, row)
-		bold = append(bold, false)
+		for _, l := range lines {
+			row := rowFor(l, fmt.Sprintf("(%s)", l.sku))
+			rows = append(rows, row)
+			bold = append(bold, false)
+		}
+		sr = 2
 	}
 
-	sr := 2
 	for _, l := range extraLines {
 		row := rowFor(l, l.sku)
 		row[0] = fmt.Sprintf("%d", sr)
