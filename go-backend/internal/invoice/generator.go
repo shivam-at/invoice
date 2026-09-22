@@ -152,18 +152,17 @@ func buildExtraLines(items []models.OrderExtraItem) []*lineItem {
 	return lines
 }
 
-// appendPrepaidRow adds the reference invoice's "Prepaid Amount:" row — a
-// partial-COD order (e.g. GoKwik PPCOD) already collected this much online
-// at checkout, with the rest collectible on delivery. Rendered bold, right
-// above the Total row, in both the amount table and the GST breakdown
-// table; omitted entirely for a normal (non-partial-COD) order.
+// appendPrepaidRow adds the reference invoice's spacer row right above the
+// Total row, in both the amount table and the GST breakdown table. The
+// reference always reserves this row — for a partial-COD order (e.g.
+// GoKwik PPCOD) it holds "Prepaid Amount:" and how much was already
+// collected online at checkout; for a normal order it's simply blank.
 func appendPrepaidRow(rows [][]string, bold []bool, numCols int, prepaidAmount float64) ([][]string, []bool) {
-	if prepaidAmount <= 0 {
-		return rows, bold
-	}
 	row := make([]string, numCols)
-	row[1] = "Prepaid Amount:"
-	row[numCols-1] = money2(prepaidAmount)
+	if prepaidAmount > 0 {
+		row[1] = "Prepaid Amount:"
+		row[numCols-1] = money2(prepaidAmount)
+	}
 	return append(rows, row), append(bold, true)
 }
 
@@ -443,10 +442,10 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 	t2Rows, t2Bold := buildGroupedRows(combo, order, lines, extraLines, func(l *lineItem, code string) []string {
 		if isInterstate {
 			return []string{"", l.name, code, l.hsn, fmt.Sprintf("%.0f", l.qty), money2(l.taxable),
-				fmt.Sprintf("%s (%.2f%%)", money2(l.igst), l.taxRate), money2(l.totalAmount)}
+				fmt.Sprintf("%s (%.3f%%)", money2(l.igst), l.taxRate), money2(l.totalAmount)}
 		}
 		return []string{"", l.name, code, l.hsn, fmt.Sprintf("%.0f", l.qty), money2(l.taxable),
-			fmt.Sprintf("%s (%.2f%%)", money2(l.cgst), l.taxRate/2), fmt.Sprintf("%s (%.2f%%)", money2(l.sgst), l.taxRate/2), money2(l.totalAmount)}
+			fmt.Sprintf("%s (%.3f%%)", money2(l.cgst), l.taxRate/2), fmt.Sprintf("%s (%.3f%%)", money2(l.sgst), l.taxRate/2), money2(l.totalAmount)}
 	})
 	t2Rows, t2Bold = appendPrepaidRow(t2Rows, t2Bold, len(t2Cols), order.PrepaidAmount)
 
