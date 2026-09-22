@@ -206,9 +206,13 @@ func (r *Repository) importOneOrder(ctx context.Context, orderCode string, rows 
 	if orderCell(first, col.cod) == "1" {
 		paymentCode, paymentLabel = "COD", "COD"
 	}
-	dispatchThrough := orderCell(first, col.shippingCourier)
+	// "Dispatch Through" on the reference invoice is the logistics provider
+	// name (e.g. "KWIKSHIP", "Delhivery"), not the courier/service-tier
+	// string (e.g. "ShadowfaxSurface0.25kg-Direct") — Shipping provider,
+	// not Shipping Courier.
+	dispatchThrough := orderCell(first, col.shippingProvider)
 	if dispatchThrough == "" {
-		dispatchThrough = orderCell(first, col.shippingProvider)
+		dispatchThrough = orderCell(first, col.shippingCourier)
 	}
 
 	// Partial-COD orders (e.g. GoKwik PPCOD) split "Prepaid Amount" per line
