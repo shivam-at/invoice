@@ -570,30 +570,40 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 
 	if companyinfo.FulfillmentPlatform != "" {
 		footerY := 285.0
+		footerDividerX := left + contentWidth*0.32
 		pdf.Rect(left, footerY, contentWidth, 10, "D")
+		// Splits the box into a "Bill By / Powered By" cell on the left and
+		// "This is a computer generated Invoice" cell on the right, and a
+		// divider under "Bill By:" separating it from the logo row below —
+		// both matching the reference, which we'd been missing.
+		pdf.Line(footerDividerX, footerY, footerDividerX, footerY+10)
+		pdf.Line(left, footerY+5, footerDividerX, footerY+5)
+
 		pdf.SetFont("Helvetica", "B", 8)
 		pdf.SetXY(left+3, footerY+1.5)
 		pdf.CellFormat(30, 4, "Bill By:", "", 0, "L", false, 0, "")
 
-		// "Powered By", then the platform's real logo image.
+		// "Powered By", then the platform's real logo image, with a bit
+		// more breathing room between the two.
 		textX := left + 3
 		pdf.SetFont("Helvetica", "", 7)
-		pdf.SetXY(textX, footerY+5.5)
+		pdf.SetXY(textX, footerY+6.5)
 		pdf.CellFormat(18, 4, "Powered By", "", 0, "L", false, 0, "")
 
+		logoX := textX + 20
 		if logoW, logoH, ok := registerLogo(pdf); ok {
 			imgH := 6.0
 			imgW := imgH * logoW / logoH
-			pdf.ImageOptions(fulfillmentLogoName, textX+15, footerY+4.5, imgW, imgH, false, fpdf.ImageOptions{ImageType: "PNG"}, 0, "")
+			pdf.ImageOptions(fulfillmentLogoName, logoX, footerY+5.5, imgW, imgH, false, fpdf.ImageOptions{ImageType: "PNG"}, 0, "")
 		} else {
 			pdf.SetTextColor(110, 110, 110)
-			pdf.SetXY(textX+15, footerY+5.5)
+			pdf.SetXY(logoX, footerY+6.5)
 			pdf.CellFormat(30, 4, strings.ToLower(companyinfo.FulfillmentPlatform), "", 0, "L", false, 0, "")
 			pdf.SetTextColor(0, 0, 0)
 		}
 
-		pdf.SetXY(left, footerY+5.5)
-		pdf.CellFormat(contentWidth, 4, "This is a computer generated Invoice", "", 0, "C", false, 0, "")
+		pdf.SetXY(footerDividerX, footerY+5.5)
+		pdf.CellFormat(right-footerDividerX, 4, "This is a computer generated Invoice", "", 0, "C", false, 0, "")
 	}
 
 	return pdf.OutputFileAndClose(path)
