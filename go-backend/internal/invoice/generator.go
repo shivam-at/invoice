@@ -575,27 +575,22 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 		pdf.SetXY(left+3, footerY+1.5)
 		pdf.CellFormat(30, 4, "Bill By:", "", 0, "L", false, 0, "")
 
-		// "Powered By", then a pair of overlapping gray ellipses standing
-		// in for the platform's actual logo mark (we have no image asset
-		// for it), then its lowercase wordmark name — all on one line,
-		// matching the reference.
+		// "Powered By", then the platform's real logo image.
 		textX := left + 3
 		pdf.SetFont("Helvetica", "", 7)
 		pdf.SetXY(textX, footerY+5.5)
 		pdf.CellFormat(18, 4, "Powered By", "", 0, "L", false, 0, "")
 
-		iconX, iconY := textX+15, footerY+6.5
-		pdf.SetDrawColor(130, 130, 130)
-		pdf.SetLineWidth(0.3)
-		pdf.Ellipse(iconX+1.2, iconY, 1.2, 1.9, 0, "D")
-		pdf.Ellipse(iconX+2.5, iconY, 1.2, 1.9, 0, "D")
-		pdf.SetLineWidth(0.2)
-		pdf.SetDrawColor(0, 0, 0)
-
-		pdf.SetTextColor(110, 110, 110)
-		pdf.SetXY(iconX+4.5, footerY+5.5)
-		pdf.CellFormat(30, 4, strings.ToLower(companyinfo.FulfillmentPlatform), "", 0, "L", false, 0, "")
-		pdf.SetTextColor(0, 0, 0)
+		if logoW, logoH, ok := registerLogo(pdf); ok {
+			imgH := 6.0
+			imgW := imgH * logoW / logoH
+			pdf.ImageOptions(fulfillmentLogoName, textX+15, footerY+4.5, imgW, imgH, false, fpdf.ImageOptions{ImageType: "PNG"}, 0, "")
+		} else {
+			pdf.SetTextColor(110, 110, 110)
+			pdf.SetXY(textX+15, footerY+5.5)
+			pdf.CellFormat(30, 4, strings.ToLower(companyinfo.FulfillmentPlatform), "", 0, "L", false, 0, "")
+			pdf.SetTextColor(0, 0, 0)
+		}
 
 		pdf.SetXY(left, footerY+5.5)
 		pdf.CellFormat(contentWidth, 4, "This is a computer generated Invoice", "", 0, "C", false, 0, "")
