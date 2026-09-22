@@ -7,9 +7,11 @@ package invoice
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/go-pdf/fpdf"
@@ -63,6 +65,33 @@ var unsafeFilenameChars = regexp.MustCompile(`[^A-Za-z0-9_-]`)
 // space, etc.).
 func sanitizeFilename(s string) string {
 	return unsafeFilenameChars.ReplaceAllString(s, "_")
+}
+
+// drawCurvedText places each character of text along an elliptical arc
+// from startDeg to endDeg (0° = top, clockwise), each one rotated to stay
+// tangent to the curve — approximating a rubber-stamp seal's curved
+// lettering, which fpdf has no built-in support for.
+func drawCurvedText(pdf *fpdf.Fpdf, cx, cy, rx, ry float64, text string, startDeg, endDeg float64) {
+	runes := []rune(text)
+	n := len(runes)
+	if n == 0 {
+		return
+	}
+	for i, r := range runes {
+		frac := 0.5
+		if n > 1 {
+			frac = float64(i) / float64(n-1)
+		}
+		deg := startDeg + frac*(endDeg-startDeg)
+		rad := deg * math.Pi / 180
+		x := cx + rx*math.Sin(rad)
+		y := cy - ry*math.Cos(rad)
+		pdf.TransformBegin()
+		pdf.TransformRotate(-deg, x, y)
+		pdf.SetXY(x-1.5, y-1.5)
+		pdf.CellFormat(3, 3, string(r), "", 0, "C", false, 0, "")
+		pdf.TransformEnd()
+	}
 }
 
 // Generate computes the invoice for order id, writes its PDF to disk, and
@@ -512,10 +541,18 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 	pdf.SetXY(boxX, y+3)
 	pdf.CellFormat(boxWidth, 4, "For "+companyinfo.CompanyName, "", 0, "C", false, 0, "")
 
-	// A faint oval placeholder where a company seal/stamp would sit on a
-	// physically-signed copy, matching the reference invoice's layout.
+	// A faint oval company-seal placeholder, with the company name curved
+	// around its rim like a real rubber stamp, matching the reference
+	// invoice's layout.
+	sealCX, sealCY := boxX+boxWidth/2, y+13.0
 	pdf.SetDrawColor(160, 160, 160)
-	pdf.Ellipse(boxX+boxWidth/2, y+13, 15, 7, 0, "D")
+	pdf.SetTextColor(160, 160, 160)
+	pdf.Ellipse(sealCX, sealCY, 15, 7, 0, "D")
+	pdf.SetFont("Helvetica", "", 4.5)
+	drawCurvedText(pdf, sealCX, sealCY, 13, 5.5, strings.ToUpper(companyinfo.CompanyName), -100, 100)
+	pdf.SetFont("Helvetica", "", 4.5)
+	drawCurvedText(pdf, sealCX, sealCY, 13, 5.5, "PVT LTD SEAL", 130, 230)
+	pdf.SetTextColor(0, 0, 0)
 	pdf.SetDrawColor(0, 0, 0)
 
 	pdf.SetFont("Helvetica", "", 7)
