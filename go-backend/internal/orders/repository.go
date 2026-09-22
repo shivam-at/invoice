@@ -59,12 +59,12 @@ func (r *Repository) CreateOrder(ctx context.Context, o models.Order, extraItems
 		INSERT INTO orders (
 			order_no, combo_id, combo_quantity, customer_name, customer_address, customer_state_code, is_cmd, status,
 			shopify_order_no, portal, payment_mode_code, payment_mode_label, dispatch_through, awb_no,
-			shipping_name, shipping_address
+			shipping_name, shipping_address, prepaid_amount
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 		RETURNING id
 	`, o.OrderNo, o.ComboID, o.ComboQuantity, o.CustomerName, o.CustomerAddress, o.CustomerStateCode, isCMD, models.OrderPending,
-		shopifyOrderNo, portal, paymentModeCode, paymentModeLabel, dispatchThrough, awbNo, shippingName, shippingAddress).Scan(&id)
+		shopifyOrderNo, portal, paymentModeCode, paymentModeLabel, dispatchThrough, awbNo, shippingName, shippingAddress, o.PrepaidAmount).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("insert order: %w", err)
 	}
@@ -102,14 +102,15 @@ const orderColumns = `
 	COALESCE(customer_state_code, ''), COALESCE(shopify_order_no, ''), COALESCE(portal, ''),
 	COALESCE(payment_mode_code, ''), COALESCE(payment_mode_label, ''), COALESCE(dispatch_through, ''),
 	COALESCE(awb_no, ''), COALESCE(shipping_name, ''), COALESCE(shipping_address, ''),
-	is_cmd, status, created_at, updated_at
+	is_cmd, status, created_at, updated_at, prepaid_amount
 `
 
 func scanOrder(row pgx.Row) (models.Order, error) {
 	var o models.Order
 	err := row.Scan(&o.ID, &o.OrderNo, &o.ComboID, &o.ComboQuantity, &o.CustomerName, &o.CustomerAddress,
 		&o.CustomerStateCode, &o.ShopifyOrderNo, &o.Portal, &o.PaymentModeCode, &o.PaymentModeLabel,
-		&o.DispatchThrough, &o.AWBNo, &o.ShippingName, &o.ShippingAddress, &o.IsCMD, &o.Status, &o.CreatedAt, &o.UpdatedAt)
+		&o.DispatchThrough, &o.AWBNo, &o.ShippingName, &o.ShippingAddress, &o.IsCMD, &o.Status, &o.CreatedAt, &o.UpdatedAt,
+		&o.PrepaidAmount)
 	return o, err
 }
 

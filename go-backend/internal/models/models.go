@@ -72,6 +72,10 @@ type Order struct {
 	AWBNo             string    `json:"awb_no"`
 	ShippingName      string    `json:"shipping_name"`
 	ShippingAddress   string    `json:"shipping_address"`
+	// PrepaidAmount is what a partial-COD order (e.g. GoKwik PPCOD) already
+	// collected online at checkout — shown as its own row on the invoice,
+	// above the Total, alongside the full COD-collectible amount.
+	PrepaidAmount     float64   `json:"prepaid_amount"`
 	IsCMD             bool      `json:"is_cmd"`
 	Status            string    `json:"status"`
 	CreatedAt         time.Time `json:"created_at"`

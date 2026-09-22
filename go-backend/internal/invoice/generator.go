@@ -151,6 +151,21 @@ func buildExtraLines(items []models.OrderExtraItem) []*lineItem {
 	return lines
 }
 
+// appendPrepaidRow adds the reference invoice's "Prepaid Amount:" row — a
+// partial-COD order (e.g. GoKwik PPCOD) already collected this much online
+// at checkout, with the rest collectible on delivery. Rendered bold, right
+// above the Total row, in both the amount table and the GST breakdown
+// table; omitted entirely for a normal (non-partial-COD) order.
+func appendPrepaidRow(rows [][]string, bold []bool, numCols int, prepaidAmount float64) ([][]string, []bool) {
+	if prepaidAmount <= 0 {
+		return rows, bold
+	}
+	row := make([]string, numCols)
+	row[1] = "Prepaid Amount:"
+	row[numCols-1] = money2(prepaidAmount)
+	return append(rows, row), append(bold, true)
+}
+
 func comboDiscount(combo models.Combo, sumGross float64) float64 {
 	switch combo.DiscountType {
 	case "percent":
@@ -354,6 +369,7 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 	t1Rows, t1Bold := buildGroupedRows(combo, order, lines, extraLines, func(l *lineItem, code string) []string {
 		return []string{"", l.name, code, l.hsn, fmt.Sprintf("%.0f", l.qty), money2(l.rate), money2(l.gross), money2(l.discount), "0.00", money2(l.totalAmount)}
 	})
+	t1Rows, t1Bold = appendPrepaidRow(t1Rows, t1Bold, len(t1Cols), order.PrepaidAmount)
 	y = drawTable(pdf, left, y, t1Cols, t1Rows, t1Bold,
 		[]string{"", "", "", "", fmt.Sprintf("%.0f", totalQty), "", "", "", "", money2(total)}, 1, "Total:")
 
@@ -401,6 +417,8 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 		return []string{"", l.name, code, l.hsn, fmt.Sprintf("%.0f", l.qty), money2(l.taxable),
 			fmt.Sprintf("%s (%.2f%%)", money2(l.cgst), l.taxRate/2), fmt.Sprintf("%s (%.2f%%)", money2(l.sgst), l.taxRate/2), money2(l.totalAmount)}
 	})
+	t2Rows, t2Bold = appendPrepaidRow(t2Rows, t2Bold, len(t2Cols), order.PrepaidAmount)
+
 	var totalRow2 []string
 	if isInterstate {
 		totalRow2 = []string{"", "", "", "", fmt.Sprintf("%.0f", totalQty), money2(totalTaxable), money2(totalIgst), money2(total)}
