@@ -76,6 +76,10 @@ type Order struct {
 	// collected online at checkout — shown as its own row on the invoice,
 	// above the Total, alongside the full COD-collectible amount.
 	PrepaidAmount     float64   `json:"prepaid_amount"`
+	// ExternalInvoiceCode is the real invoice number Unicommerce already
+	// assigned this order (e.g. "MHR-26-27-1059053") — printed as-is when
+	// present, instead of minting our own CMD######## number.
+	ExternalInvoiceCode string `json:"external_invoice_code"`
 	IsCMD             bool      `json:"is_cmd"`
 	Status            string    `json:"status"`
 	CreatedAt         time.Time `json:"created_at"`

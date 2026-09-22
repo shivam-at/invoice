@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"time"
 
 	"github.com/go-pdf/fpdf"
@@ -54,6 +55,16 @@ func invoiceNumber(orderID int64) string {
 	return fmt.Sprintf("CMD%08d", orderID)
 }
 
+var unsafeFilenameChars = regexp.MustCompile(`[^A-Za-z0-9_-]`)
+
+// sanitizeFilename lets an external invoice code (e.g. "MHR-26-27-1059053")
+// through unchanged in the common case, while still guaranteeing a safe
+// filesystem path if a sheet ever contains something stranger (a slash,
+// space, etc.).
+func sanitizeFilename(s string) string {
+	return unsafeFilenameChars.ReplaceAllString(s, "_")
+}
+
 // Generate computes the invoice for order id, writes its PDF to disk, and
 // persists the invoice row (idempotently — see CreateInvoiceIfAbsent).
 func (g *Generator) Generate(ctx context.Context, orderID int64) (models.Invoice, error) {
@@ -94,8 +105,16 @@ func (g *Generator) Generate(ctx context.Context, orderID int64) (models.Invoice
 	extraLines := buildExtraLines(extraItems)
 	applyDiscount(extraLines, 0, 0, isInterstate)
 
-	invNo := invoiceNumber(orderID)
-	pdfName := invNo + ".pdf"
+	// A real Unicommerce-issued order already has its own invoice number
+	// (Invoice Code) — print that instead of minting our own, since the
+	// number on a real GST invoice can't be silently swapped for a
+	// different one. Only orders created fresh through this system (no
+	// external code) get our own generated CMD######## number.
+	invNo := order.ExternalInvoiceCode
+	if invNo == "" {
+		invNo = invoiceNumber(orderID)
+	}
+	pdfName := sanitizeFilename(invNo) + ".pdf"
 	pdfPath := filepath.Join(g.invoicesDir, pdfName)
 
 	total := 0.0

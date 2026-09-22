@@ -22,7 +22,7 @@ type orderColumnIndex struct {
 	displayOrderCode, itemSku, bundleSku, sellingPrice                  int
 	shipName, shipLine1, shipLine2, shipCity, shipState, shipPincode    int
 	channelName, shippingCourier, shippingProvider, trackingNumber, cod int
-	prepaidAmount                                                       int
+	prepaidAmount, invoiceCode                                          int
 }
 
 func findOrderColumns(header []string) (orderColumnIndex, error) {
@@ -53,6 +53,7 @@ func findOrderColumns(header []string) (orderColumnIndex, error) {
 		trackingNumber:   get("Tracking Number"),
 		cod:              get("COD"),
 		prepaidAmount:    get("Prepaid Amount"),
+		invoiceCode:      get("Invoice Code"),
 	}
 	if col.displayOrderCode == -1 || col.itemSku == -1 || col.bundleSku == -1 {
 		return col, fmt.Errorf("sheet must have Display Order Code, Item SKU Code, and Bundle SKU Code Number columns")
@@ -229,7 +230,7 @@ func (r *Repository) importOneOrder(ctx context.Context, orderCode string, rows 
 		ShopifyOrderNo: orderCode, Portal: orderCell(first, col.channelName),
 		PaymentModeCode: paymentCode, PaymentModeLabel: paymentLabel,
 		DispatchThrough: dispatchThrough, AWBNo: orderCell(first, col.trackingNumber),
-		PrepaidAmount: prepaidAmount,
+		PrepaidAmount: prepaidAmount, ExternalInvoiceCode: orderCell(first, col.invoiceCode),
 	}
 	if order.CustomerName == "" {
 		return fmt.Errorf("missing Shipping Address Name")

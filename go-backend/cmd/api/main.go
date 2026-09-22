@@ -109,8 +109,9 @@ type createOrderReq struct {
 	AWBNo             string  `json:"awb_no"`
 	ShippingName      string  `json:"shipping_name"`
 	ShippingAddress   string  `json:"shipping_address"`
-	PrepaidAmount     float64 `json:"prepaid_amount"`
-	ExtraItems        []struct {
+	PrepaidAmount       float64 `json:"prepaid_amount"`
+	ExternalInvoiceCode string  `json:"external_invoice_code"`
+	ExtraItems          []struct {
 		ProductID int64   `json:"product_id"`
 		Quantity  float64 `json:"quantity"`
 		UnitPrice float64 `json:"unit_price"`
@@ -162,6 +163,7 @@ func (a *api) createOrder(w http.ResponseWriter, r *http.Request) {
 		ShopifyOrderNo: req.ShopifyOrderNo, Portal: req.Portal, PaymentModeCode: req.PaymentModeCode,
 		PaymentModeLabel: req.PaymentModeLabel, DispatchThrough: req.DispatchThrough, AWBNo: req.AWBNo,
 		ShippingName: req.ShippingName, ShippingAddress: req.ShippingAddress, PrepaidAmount: req.PrepaidAmount,
+		ExternalInvoiceCode: req.ExternalInvoiceCode,
 	}, extraItems)
 	if err != nil {
 		httpError(w, http.StatusBadRequest, err.Error())
