@@ -362,18 +362,20 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 	pdf.SetXY(colA+1.5, y+8)
 	pdf.MultiCell(colB-colA-3, 3, fullAddressBlock(shipAddr, order.CustomerStateCode), "", "L", false)
 
-	pdf.SetFont("Helvetica", "B", 8)
-	pdf.SetXY(colB+1.5, y)
-	pdf.CellFormat(col3Width, 3.5, "Dispatch Through:", "", 0, "L", false, 0, "")
 	pdf.SetFont("Helvetica", "", 7)
+	pdf.SetXY(colB+1.5, y)
+	pdf.CellFormat(col3Width, 3.5, "Dispatch Through", "", 0, "C", false, 0, "")
+	pdf.SetFont("Helvetica", "B", 7)
 	pdf.SetXY(colB+1.5, y+4)
-	pdf.CellFormat(col3Width, 3.5, order.DispatchThrough, "", 0, "L", false, 0, "")
+	pdf.CellFormat(col3Width, 3.5, order.DispatchThrough, "", 0, "C", false, 0, "")
+	pdf.SetFont("Helvetica", "", 7)
 	pdf.SetXY(colB+1.5, y+8)
-	pdf.CellFormat(col3Width, 3.5, "AWB No: "+order.AWBNo, "", 0, "L", false, 0, "")
+	pdf.CellFormat(col3Width, 3.5, "AWB No", "", 0, "C", false, 0, "")
+	pdf.SetXY(colB+1.5, y+11.5)
+	pdf.CellFormat(col3Width, 3.5, order.AWBNo, "", 0, "C", false, 0, "")
 	if awbBarcode != "" {
-		pdf.ImageOptions(awbBarcode, colB+1.5, y+12, col3Width-2, 8, false, fpdf.ImageOptions{ImageType: "PNG"}, 0, "")
-		pdf.SetFont("Helvetica", "", 7)
-		pdf.SetXY(colB+1.5, y+20.5)
+		pdf.ImageOptions(awbBarcode, colB+1.5, y+15.5, col3Width-2, 8, false, fpdf.ImageOptions{ImageType: "PNG"}, 0, "")
+		pdf.SetXY(colB+1.5, y+24)
 		pdf.CellFormat(col3Width, 3.5, order.AWBNo, "", 0, "C", false, 0, "")
 	}
 
