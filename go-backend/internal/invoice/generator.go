@@ -376,15 +376,8 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 	y += 3
 
 	// ---- Table 2: taxable value / GST breakdown, grouped by combo ----
-	pdf.SetFont("Helvetica", "B", 8)
-	pdf.SetXY(left, y)
-	supplyLabel := "Place of Supply: Intra-State (CGST + SGST applicable)"
-	if isInterstate {
-		supplyLabel = "Place of Supply: Inter-State (IGST applicable)"
-	}
-	pdf.CellFormat(contentWidth, 4, supplyLabel, "", 1, "L", false, 0, "")
 	pdf.SetFont("Helvetica", "", 8)
-	pdf.SetXY(left, pdf.GetY())
+	pdf.SetXY(left, y)
 	pdf.CellFormat(contentWidth, 4, "*Breakdown of Invoice Value is as follows", "", 1, "L", false, 0, "")
 	y = pdf.GetY() + 1
 
