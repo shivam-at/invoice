@@ -57,33 +57,33 @@ const (
 )
 
 type Order struct {
-	ID                int64     `json:"id"`
-	OrderNo           string    `json:"order_no"`
-	ComboID           *int64    `json:"combo_id"`
-	ComboQuantity     float64   `json:"combo_quantity"`
-	CustomerName      string    `json:"customer_name"`
-	CustomerAddress   string    `json:"customer_address"`
-	CustomerStateCode string    `json:"customer_state_code"`
-	ShopifyOrderNo    string    `json:"shopify_order_no"`
-	Portal            string    `json:"portal"`
-	PaymentModeCode   string    `json:"payment_mode_code"`
-	PaymentModeLabel  string    `json:"payment_mode_label"`
-	DispatchThrough   string    `json:"dispatch_through"`
-	AWBNo             string    `json:"awb_no"`
-	ShippingName      string    `json:"shipping_name"`
-	ShippingAddress   string    `json:"shipping_address"`
+	ID                int64   `json:"id"`
+	OrderNo           string  `json:"order_no"`
+	ComboID           *int64  `json:"combo_id"`
+	ComboQuantity     float64 `json:"combo_quantity"`
+	CustomerName      string  `json:"customer_name"`
+	CustomerAddress   string  `json:"customer_address"`
+	CustomerStateCode string  `json:"customer_state_code"`
+	ShopifyOrderNo    string  `json:"shopify_order_no"`
+	Portal            string  `json:"portal"`
+	PaymentModeCode   string  `json:"payment_mode_code"`
+	PaymentModeLabel  string  `json:"payment_mode_label"`
+	DispatchThrough   string  `json:"dispatch_through"`
+	AWBNo             string  `json:"awb_no"`
+	ShippingName      string  `json:"shipping_name"`
+	ShippingAddress   string  `json:"shipping_address"`
 	// PrepaidAmount is what a partial-COD order (e.g. GoKwik PPCOD) already
 	// collected online at checkout — shown as its own row on the invoice,
 	// above the Total, alongside the full COD-collectible amount.
-	PrepaidAmount     float64   `json:"prepaid_amount"`
+	PrepaidAmount float64 `json:"prepaid_amount"`
 	// ExternalInvoiceCode is the real invoice number Unicommerce already
 	// assigned this order (e.g. "MHR-26-27-1059053") — printed as-is when
 	// present, instead of minting our own CMD######## number.
-	ExternalInvoiceCode string `json:"external_invoice_code"`
-	IsCMD             bool      `json:"is_cmd"`
-	Status            string    `json:"status"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
+	ExternalInvoiceCode string    `json:"external_invoice_code"`
+	IsCMD               bool      `json:"is_cmd"`
+	Status              string    `json:"status"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
 }
 
 type Invoice struct {

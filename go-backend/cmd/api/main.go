@@ -95,20 +95,20 @@ func (a *api) healthz(w http.ResponseWriter, r *http.Request) {
 }
 
 type createOrderReq struct {
-	OrderNo           string  `json:"order_no"`
-	ComboID           int64   `json:"combo_id"`
-	ComboQuantity     float64 `json:"combo_quantity"`
-	CustomerName      string  `json:"customer_name"`
-	CustomerAddress   string  `json:"customer_address"`
-	CustomerStateCode string  `json:"customer_state_code"`
-	ShopifyOrderNo    string  `json:"shopify_order_no"`
-	Portal            string  `json:"portal"`
-	PaymentModeCode   string  `json:"payment_mode_code"`
-	PaymentModeLabel  string  `json:"payment_mode_label"`
-	DispatchThrough   string  `json:"dispatch_through"`
-	AWBNo             string  `json:"awb_no"`
-	ShippingName      string  `json:"shipping_name"`
-	ShippingAddress   string  `json:"shipping_address"`
+	OrderNo             string  `json:"order_no"`
+	ComboID             int64   `json:"combo_id"`
+	ComboQuantity       float64 `json:"combo_quantity"`
+	CustomerName        string  `json:"customer_name"`
+	CustomerAddress     string  `json:"customer_address"`
+	CustomerStateCode   string  `json:"customer_state_code"`
+	ShopifyOrderNo      string  `json:"shopify_order_no"`
+	Portal              string  `json:"portal"`
+	PaymentModeCode     string  `json:"payment_mode_code"`
+	PaymentModeLabel    string  `json:"payment_mode_label"`
+	DispatchThrough     string  `json:"dispatch_through"`
+	AWBNo               string  `json:"awb_no"`
+	ShippingName        string  `json:"shipping_name"`
+	ShippingAddress     string  `json:"shipping_address"`
 	PrepaidAmount       float64 `json:"prepaid_amount"`
 	ExternalInvoiceCode string  `json:"external_invoice_code"`
 	ExtraItems          []struct {
