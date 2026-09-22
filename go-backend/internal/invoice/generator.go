@@ -387,11 +387,13 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 
 	y = row2Bottom + 4
 
-	// ---- Table 1: gross amount / discount / amount, grouped by combo ----
+	// ---- Table 1: gross amount / amount, grouped by combo ----
+	// No "Discount" column here — the reference invoice folds any combo
+	// discount straight into Amount (INR) rather than showing it separately.
 	t1Cols := []tableColumn{
 		{"Sr No.", 8, "L"}, {"Product Name", 42, "L"}, {"Product Code.", 22, "L"}, {"HSN Code", 18, "L"},
-		{"Qty", 9, "R"}, {"Rate", 17, "R"}, {"Gross Amount- Incl GST (INR)", 20, "R"}, {"Discount", 17, "R"},
-		{"Store Credit", 15, "R"}, {"Amount (INR)", 22, "R"},
+		{"Qty", 9, "R"}, {"Rate", 21, "R"}, {"Gross Amount- Incl GST (INR)", 25, "R"},
+		{"Store Credit", 18, "R"}, {"Amount (INR)", 27, "R"},
 	}
 
 	totalQty := 0.0
@@ -403,11 +405,11 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 	}
 
 	t1Rows, t1Bold := buildGroupedRows(combo, order, lines, extraLines, func(l *lineItem, code string) []string {
-		return []string{"", l.name, code, l.hsn, fmt.Sprintf("%.0f", l.qty), money2(l.rate), money2(l.gross), money2(l.discount), "0.00", money2(l.totalAmount)}
+		return []string{"", l.name, code, l.hsn, fmt.Sprintf("%.0f", l.qty), money2(l.rate), money2(l.gross), "0.00", money2(l.totalAmount)}
 	})
 	t1Rows, t1Bold = appendPrepaidRow(t1Rows, t1Bold, len(t1Cols), order.PrepaidAmount)
 	y = drawTable(pdf, left, y, t1Cols, t1Rows, t1Bold,
-		[]string{"", "", "", "", fmt.Sprintf("%.0f", totalQty), "", "", "", "", money2(total)}, 1, "Total:")
+		[]string{"", "", "", "", fmt.Sprintf("%.0f", totalQty), "", "", "", money2(total)}, 1, "Total:")
 
 	y += 3
 
