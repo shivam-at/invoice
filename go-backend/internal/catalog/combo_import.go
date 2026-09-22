@@ -1,8 +1,9 @@
 // Combo auto-detection, ported from combos.js. Rows with Category Code
-// "CMB" are combos; their Product Code encodes component SKUs as trailing
-// numeric suffixes joined by underscore (e.g. CMB_0047_0196 bundles
-// whichever two products already in the catalog have SKUs ending in _0047
-// and _0196). A combo's discount is reconstructed as
+// "CMB" (soft combo) or "KIT" (hard combo — pre-packed as one physical
+// unit, but coded and resolved identically) are combos; their Product Code
+// encodes component SKUs as trailing numeric suffixes joined by underscore
+// (e.g. CMB_0047_0196 bundles whichever two products already in the catalog
+// have SKUs ending in _0047 and _0196). A combo's discount is reconstructed as
 // (sum of component prices - combo MRP). Combos where a suffix doesn't
 // resolve to exactly one product are left for manual/heuristic resolution
 // rather than guessed at blindly, since this feeds real invoices.
@@ -91,7 +92,7 @@ func loadComboRowsFromSheet(rows [][]string) (map[string]comboSheetRow, error) {
 	for _, row := range rows[1:] {
 		category := strings.ToUpper(strings.TrimSpace(cellAt(row, idx.category)))
 		code := cellAt(row, idx.code)
-		if category != comboCategoryCode || code == "" {
+		if !isComboCategoryCode(category) || code == "" {
 			continue
 		}
 		if _, exists := byCode[code]; exists {

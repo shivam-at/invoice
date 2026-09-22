@@ -23,7 +23,16 @@ var productColumnAliases = map[string][]string{
 	"category_code": {"category code", "category_code"},
 }
 
-const comboCategoryCode = "CMB"
+// comboCategoryCodes: "CMB" combos have their components inferred purely
+// from the code's numeric suffixes (a "soft" combo). "KIT" rows are the same
+// thing but pre-packed/sold as one physical unit (a "hard" combo) — same
+// code shape (e.g. CMB_0044_0349_K), same suffix-based component
+// resolution, just a different Category Code in the source sheet.
+var comboCategoryCodes = map[string]bool{"CMB": true, "KIT": true}
+
+func isComboCategoryCode(cat string) bool {
+	return comboCategoryCodes[cat]
+}
 
 func buildColumnIndex(header []string) map[string]int {
 	normalized := make([]string, len(header))
@@ -101,7 +110,7 @@ func (r *Repository) ImportProductsFromRows(ctx context.Context, rows [][]string
 		if idx, ok := col["category_code"]; ok && idx < len(row) {
 			categoryCode = strings.ToUpper(strings.TrimSpace(row[idx]))
 		}
-		if categoryCode == comboCategoryCode {
+		if isComboCategoryCode(categoryCode) {
 			result.Skipped = append(result.Skipped, SkipReason{Row: rowNum, Reason: "combo item — import combos separately from Combo Deals page"})
 			continue
 		}
