@@ -283,14 +283,17 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 	pdf.SetXY(colA+colBHalf+1.5, y+4)
 	pdf.CellFormat(colBHalf-3, 3.5, formatDate(order.CreatedAt), "", 0, "L", false, 0, "")
 
-	pdf.SetFont("Helvetica", "", 7)
+	pdf.SetFont("Helvetica", "B", 8)
 	pdf.SetXY(colA+1.5, y+10)
-	pdf.CellFormat(colB-colA-3, 3.5, "Order No: "+order.ShopifyOrderNo, "", 0, "C", false, 0, "")
-	pdf.SetXY(colA+1.5, y+14)
+	pdf.CellFormat(colB-colA-3, 4, "Order No: "+order.ShopifyOrderNo, "", 0, "C", false, 0, "")
+	pdf.SetFont("Helvetica", "", 7)
+	pdf.SetXY(colA+1.5, y+14.5)
 	pdf.CellFormat(colB-colA-3, 3.5, "Order Date: "+formatDate(order.CreatedAt), "", 0, "C", false, 0, "")
 	if orderBarcode != "" {
 		barcodeWidth := 40.0
 		pdf.ImageOptions(orderBarcode, colA+(colB-colA-barcodeWidth)/2, y+19, barcodeWidth, 8, false, fpdf.ImageOptions{ImageType: "PNG"}, 0, "")
+		pdf.SetXY(colA+1.5, y+27.5)
+		pdf.CellFormat(colB-colA-3, 3.5, order.ShopifyOrderNo, "", 0, "C", false, 0, "")
 	}
 
 	col3Width := right - colB - 3
@@ -341,6 +344,9 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 	pdf.CellFormat(col3Width, 3.5, "AWB No: "+order.AWBNo, "", 0, "L", false, 0, "")
 	if awbBarcode != "" {
 		pdf.ImageOptions(awbBarcode, colB+1.5, y+12, col3Width-2, 8, false, fpdf.ImageOptions{ImageType: "PNG"}, 0, "")
+		pdf.SetFont("Helvetica", "", 7)
+		pdf.SetXY(colB+1.5, y+20.5)
+		pdf.CellFormat(col3Width, 3.5, order.AWBNo, "", 0, "C", false, 0, "")
 	}
 
 	// ---- Grid lines for the whole header block ----
