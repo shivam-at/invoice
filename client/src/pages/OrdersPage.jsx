@@ -23,7 +23,8 @@ export default function OrdersPage() {
   const [stats, setStats] = useState(null);
   const [error, setError] = useState("");
   const [running, setRunning] = useState(false);
-  const [resetting, setResetting] = useState(false);
+  const [deleteCount, setDeleteCount] = useState(50);
+  const [deleting, setDeleting] = useState(false);
 
   const [sheetUrl, setSheetUrl] = useState(() => {
     try {
@@ -91,22 +92,26 @@ export default function OrdersPage() {
     }
   };
 
-  const runReset = async () => {
+  const runDelete = async () => {
+    const n = Number(deleteCount) || 0;
+    if (n <= 0) {
+      setError("Enter how many orders to delete (1 or more)");
+      return;
+    }
     const sure = window.confirm(
-      `This resets ALL ${total.toLocaleString()} orders back to PENDING and deletes every invoice PDF, so the pipeline ` +
-        "can regenerate everything from scratch (useful for a live demo). Nothing unique is lost — invoice numbers " +
-        "and PDFs are deterministic from the order data, so this is safe to re-run. Continue?"
+      `Permanently delete the ${n} most recently created order${n === 1 ? "" : "s"} — order, invoice, PDF and all — ` +
+        "this cannot be undone. Continue?"
     );
     if (!sure) return;
-    setResetting(true);
+    setDeleting(true);
     setError("");
     try {
-      await OrdersApi.resetAll();
+      await OrdersApi.deleteRecent(n);
       load();
     } catch (err) {
       setError(err.response?.data?.error || err.message);
     } finally {
-      setResetting(false);
+      setDeleting(false);
     }
   };
 
@@ -211,8 +216,16 @@ export default function OrdersPage() {
               <button className="secondary" onClick={runIdentify} disabled={running}>
                 {running ? "Running..." : "Process pending orders"}
               </button>
-              <button className="secondary" onClick={runReset} disabled={resetting} title="Reset every order back to PENDING and regenerate all invoices from scratch">
-                {resetting ? "Resetting..." : "Reset All & Regenerate"}
+              <input
+                type="number"
+                min="1"
+                value={deleteCount}
+                onChange={(e) => setDeleteCount(e.target.value)}
+                style={{ width: 70 }}
+                title="How many of the most recently created orders to delete"
+              />
+              <button className="secondary" onClick={runDelete} disabled={deleting} title="Permanently delete the N most recently created orders (order, invoice, PDF and all)">
+                {deleting ? "Deleting..." : "Delete Most Recent"}
               </button>
             </div>
           </div>

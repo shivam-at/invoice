@@ -66,8 +66,8 @@ func (s *Service) CountByStatus(ctx context.Context, status string) (int, error)
 	return s.repo.CountByStatus(ctx, status)
 }
 
-func (s *Service) ResetAllOrders(ctx context.Context) ([]string, int, error) {
-	return s.repo.ResetAllOrders(ctx)
+func (s *Service) DeleteRecentOrders(ctx context.Context, n int) ([]string, int, error) {
+	return s.repo.DeleteRecentOrders(ctx, n)
 }
 
 func (s *Service) ImportOrdersFromRows(ctx context.Context, rows [][]string, catalogRepo *catalog.Repository, offset, limit int) (OrderImportResult, error) {

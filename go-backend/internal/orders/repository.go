@@ -324,15 +324,25 @@ func (r *Repository) CountByStatus(ctx context.Context, status string) (int, err
 	return n, err
 }
 
-// ResetAllOrders wipes every invoice/print_job (print_jobs cascades from
-// invoices) and flips every order back to PENDING, so the whole pipeline can
-// be replayed from scratch — e.g. for a live demo. Nothing unique is lost:
-// invoice numbers and PDFs are deterministic from the order row, so
-// re-running the pipeline reproduces the same invoices. Returns the PDF
-// paths that existed (for the caller to unlink from disk) and how many
-// orders were reset.
-func (r *Repository) ResetAllOrders(ctx context.Context) (pdfPaths []string, resetCount int, err error) {
-	rows, err := r.pool.Query(ctx, `SELECT pdf_path FROM invoices WHERE pdf_path IS NOT NULL AND pdf_path <> ''`)
+// DeleteRecentOrders permanently deletes the N most recently created
+// orders, and everything tied to them (invoice, print job, extra items —
+// all via ON DELETE CASCADE from orders/invoices), e.g. to clean up demo or
+// test orders. Returns the invoice PDF paths that existed among them (for
+// the caller to unlink from disk) and how many orders were actually deleted.
+func (r *Repository) DeleteRecentOrders(ctx context.Context, n int) (pdfPaths []string, deletedCount int, err error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer tx.Rollback(ctx)
+
+	rows, err := tx.Query(ctx, `
+		SELECT i.pdf_path FROM orders o
+		JOIN invoices i ON i.order_id = o.id
+		WHERE i.pdf_path IS NOT NULL AND i.pdf_path <> ''
+		ORDER BY o.created_at DESC
+		LIMIT $1
+	`, n)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -346,16 +356,11 @@ func (r *Repository) ResetAllOrders(ctx context.Context) (pdfPaths []string, res
 	}
 	rows.Close()
 
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer tx.Rollback(ctx)
-
-	if _, err := tx.Exec(ctx, `DELETE FROM invoices`); err != nil {
-		return nil, 0, err
-	}
-	tag, err := tx.Exec(ctx, `UPDATE orders SET status = $1, updated_at = now()`, models.OrderPending)
+	tag, err := tx.Exec(ctx, `
+		DELETE FROM orders WHERE id IN (
+			SELECT id FROM orders ORDER BY created_at DESC LIMIT $1
+		)
+	`, n)
 	if err != nil {
 		return nil, 0, err
 	}
