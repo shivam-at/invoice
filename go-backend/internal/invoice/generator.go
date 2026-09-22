@@ -443,9 +443,14 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 		{"Store Credit", 18, "R"}, {"Amount (INR)", 27, "R"},
 	}
 
+	// The reference invoice's Total row counts combo SETS ordered (i.e.
+	// order.ComboQuantity), not the sum of each component's own per-set
+	// quantity — a 1-set combo of 2 different components totals Qty 1, not
+	// 2. Standalone extra items are real separate order lines, so their
+	// quantities do sum normally.
 	totalQty := 0.0
-	for _, l := range lines {
-		totalQty += l.qty
+	if order.ComboID != nil {
+		totalQty += order.ComboQuantity
 	}
 	for _, l := range extraLines {
 		totalQty += l.qty
