@@ -23,6 +23,7 @@ type orderColumnIndex struct {
 	shipName, shipLine1, shipLine2, shipCity, shipState, shipPincode    int
 	channelName, shippingCourier, shippingProvider, trackingNumber, cod int
 	prepaidAmount, invoiceCode                                          int
+	itemTypeName, hsnCode, gstTaxTypeCode                               int
 }
 
 func findOrderColumns(header []string) (orderColumnIndex, error) {
@@ -54,6 +55,9 @@ func findOrderColumns(header []string) (orderColumnIndex, error) {
 		cod:              get("COD"),
 		prepaidAmount:    get("Prepaid Amount"),
 		invoiceCode:      get("Invoice Code"),
+		itemTypeName:     get("Item Type Name"),
+		hsnCode:          get("HSN Code"),
+		gstTaxTypeCode:   get("GST Tax Type Code"),
 	}
 	if col.displayOrderCode == -1 || col.itemSku == -1 || col.bundleSku == -1 {
 		return col, fmt.Errorf("sheet must have Display Order Code, Item SKU Code, and Bundle SKU Code Number columns")
@@ -150,9 +154,11 @@ func (r *Repository) importOneOrder(ctx context.Context, orderCode string, rows 
 	}
 
 	// Every order gets invoiced now, not just combo orders — a plain,
-	// single/multi-product order with no Bundle SKU Code Number becomes an
-	// order with combo_id = nil, and every one of its line items becomes a
-	// standalone extra item instead of a combo component.
+	// single/multi-product order with no Bundle SKU Code Number (or whose
+	// combo code isn't in the catalog yet) becomes an order with
+	// combo_id = nil, and every one of its line items becomes a standalone
+	// extra item instead of a combo component. Nobody's invoice gets
+	// skipped just because a combo hasn't been resolved yet.
 	var comboIDPtr *int64
 	comboSKUs := map[string]bool{}
 	for c := range comboCodeCounts {
@@ -161,7 +167,7 @@ func (r *Repository) importOneOrder(ctx context.Context, orderCode string, rows 
 			return fmt.Errorf("lookup combo: %w", err)
 		}
 		if !found {
-			return fmt.Errorf("combo %s not found in catalog", c)
+			continue
 		}
 		comboItems, _, err := r.GetComboItems(ctx, comboID)
 		if err != nil {
@@ -242,14 +248,30 @@ func (r *Repository) importOneOrder(ctx context.Context, orderCode string, rows 
 		if sku == "" || comboSKUs[sku] {
 			continue // already accounted for by the combo's own definition
 		}
+		price, _ := strconv.ParseFloat(orderCell(row, col.sellingPrice), 64)
 		product, found, err := catalogRepo.FindProductBySKU(ctx, sku)
 		if err != nil {
 			return fmt.Errorf("lookup product %s: %w", sku, err)
 		}
 		if !found {
-			return fmt.Errorf("extra-item product %s not found in catalog", sku)
+			// Nobody's invoice gets skipped just because a SKU was never
+			// added to the Products catalog — create a minimal product
+			// from this line item's own data (name, HSN, tax rate) so the
+			// order (and every future one reusing this SKU) can be
+			// invoiced normally.
+			name := orderCell(row, col.itemTypeName)
+			if name == "" {
+				name = sku
+			}
+			newID, err := catalogRepo.CreateProduct(ctx, models.Product{
+				Name: name, SKU: sku, HSNCode: orderCell(row, col.hsnCode),
+				Price: price, TaxRate: gstRateFromTaxTypeCode(orderCell(row, col.gstTaxTypeCode)),
+			})
+			if err != nil {
+				return fmt.Errorf("auto-create product %s: %w", sku, err)
+			}
+			product.ID = newID
 		}
-		price, _ := strconv.ParseFloat(orderCell(row, col.sellingPrice), 64)
 		extraItems = append(extraItems, models.OrderExtraItem{ProductID: product.ID, Quantity: 1, UnitPrice: price})
 	}
 
@@ -311,4 +333,15 @@ var stateNameToCode = map[string]string{
 func lookupStateCode(name string) (string, bool) {
 	code, ok := stateNameToCode[strings.ToLower(strings.TrimSpace(name))]
 	return code, ok
+}
+
+// gstRateFromTaxTypeCode extracts the percentage from a code like "GST_3"
+// or "GST_18" -> 3, 18. Returns 0 for anything else (e.g. blank, "DEFAULT").
+func gstRateFromTaxTypeCode(code string) float64 {
+	_, numPart, found := strings.Cut(code, "_")
+	if !found {
+		return 0
+	}
+	rate, _ := strconv.ParseFloat(numPart, 64)
+	return rate
 }
