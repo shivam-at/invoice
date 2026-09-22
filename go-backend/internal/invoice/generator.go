@@ -571,13 +571,29 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 	if companyinfo.FulfillmentPlatform != "" {
 		footerY := 285.0
 		pdf.Rect(left, footerY, contentWidth, 10, "D")
-		pdf.SetFont("Helvetica", "B", 8)
+		pdf.SetFont("Helvetica", "BU", 8)
 		pdf.SetXY(left+3, footerY+1.5)
 		pdf.CellFormat(30, 4, "Bill By:", "", 0, "L", false, 0, "")
+		// A divider under "Bill By:", separating it from the
+		// logo/platform-name row beneath, matching the reference.
+		pdf.Line(left, footerY+5, right, footerY+5)
+
+		// A small monogram standing in for the platform's actual logo mark
+		// (we have no image asset for it), followed by its name.
+		logoSize := 4.0
+		logoX, logoY := left+3, footerY+6.0
+		pdf.SetFillColor(40, 40, 40)
+		pdf.RoundedRect(logoX, logoY, logoSize, logoSize, 1, "1234", "F")
+		pdf.SetTextColor(255, 255, 255)
+		pdf.SetFont("Helvetica", "B", 6)
+		pdf.SetXY(logoX, logoY)
+		pdf.CellFormat(logoSize, logoSize, "u", "", 0, "C", false, 0, "")
+		pdf.SetTextColor(0, 0, 0)
+
 		pdf.SetFont("Helvetica", "", 7)
-		pdf.SetXY(left+3, footerY+5.5)
+		pdf.SetXY(logoX+logoSize+1.5, footerY+6.2)
 		pdf.CellFormat(60, 4, "Powered By "+companyinfo.FulfillmentPlatform, "", 0, "L", false, 0, "")
-		pdf.SetXY(left, footerY+3.5)
+		pdf.SetXY(left, footerY+6.2)
 		pdf.CellFormat(contentWidth, 4, "This is a computer generated Invoice", "", 0, "C", false, 0, "")
 	}
 
