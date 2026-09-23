@@ -120,6 +120,16 @@ func (r *Repository) GetOrder(ctx context.Context, id int64) (models.Order, erro
 	return scanOrder(row)
 }
 
+// OrderExists is the cheap check a worker/printer job uses to tell "this
+// order was deleted, so retrying is pointless — drop the job" apart from
+// "this order exists but isn't ready yet — a genuine transient race worth
+// retrying."
+func (r *Repository) OrderExists(ctx context.Context, id int64) (bool, error) {
+	var exists bool
+	err := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM orders WHERE id = $1)`, id).Scan(&exists)
+	return exists, err
+}
+
 // GetOrderExtraItems returns the standalone product lines on an order
 // beyond its combo (e.g. free gifts) — always []models.OrderExtraItem{},
 // never nil, so JSON serializes to [] rather than null.

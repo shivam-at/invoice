@@ -90,6 +90,14 @@ func processInvoiceJob(ctx context.Context, workerID int, job queue.Job, repo *o
 
 	inv, err := gen.Generate(ctx, job.OrderID)
 	if err != nil {
+		// Same reasoning as the printer: if the order itself was deleted
+		// (e.g. a test/demo cleanup), retrying can never succeed — drop the
+		// job immediately instead of burning through every retry attempt.
+		if exists, existsErr := repo.OrderExists(ctx, job.OrderID); existsErr == nil && !exists {
+			log.Printf("worker %d: order %d no longer exists, dropping stale job", workerID, job.OrderID)
+			_ = invoiceQ.Ack(ctx, job)
+			return
+		}
 		log.Printf("worker %d: order %d generate failed (attempt %d): %v", workerID, job.OrderID, job.Attempts+1, err)
 		if job.Attempts+1 >= maxAttempts {
 			_ = repo.UpdateOrderStatus(ctx, job.OrderID, models.OrderFailed)

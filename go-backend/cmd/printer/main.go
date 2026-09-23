@@ -89,6 +89,16 @@ func processPrintJob(ctx context.Context, printerID int, job queue.Job, repo *or
 
 	inv, err := repo.GetInvoice(ctx, job.OrderID)
 	if err != nil {
+		// Distinguish "order was deleted, retrying can never help" from "the
+		// invoice just isn't generated yet, a genuine transient race" — the
+		// former should drop immediately instead of occupying a worker slot
+		// for 5 retries (or forever, if it never happens to hit
+		// maxAttempts fast enough — see the audit that found this).
+		if exists, existsErr := repo.OrderExists(ctx, job.OrderID); existsErr == nil && !exists {
+			log.Printf("printer %d: order %d no longer exists, dropping stale job", printerID, job.OrderID)
+			_ = printQ.Ack(ctx, job)
+			return
+		}
 		log.Printf("printer %d: order %d has no invoice yet: %v", printerID, job.OrderID, err)
 		backoff(job.Attempts)
 		_ = printQ.Requeue(ctx, job)
