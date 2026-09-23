@@ -28,6 +28,20 @@ type ComboItem struct {
 	Product   Product `json:"product"`
 }
 
+// OrderCombo is one ADDITIONAL combo on a multi-combo order, beyond the
+// order's primary Order.ComboID — e.g. an order whose line items reference
+// 2 different Bundle SKU Code Numbers has one primary combo plus one
+// OrderCombo row. Each renders as its own bold group on the invoice, same
+// as the primary combo.
+type OrderCombo struct {
+	ID            int64   `json:"id"`
+	OrderID       int64   `json:"order_id"`
+	ComboID       int64   `json:"combo_id"`
+	ComboQuantity float64 `json:"combo_quantity"`
+	Combo         Combo   `json:"combo"`
+	Items         []ComboItem `json:"items"`
+}
+
 // OrderExtraItem is a standalone product line on an order that isn't part
 // of its combo (e.g. a "FREE GIFT" bundled onto that specific order) —
 // rendered as its own top-level Sr row on the invoice, not indented under

@@ -102,33 +102,44 @@ func (g *Generator) Generate(ctx context.Context, orderID int64) (models.Invoice
 		return models.Invoice{}, fmt.Errorf("get order: %w", err)
 	}
 
-	var items []models.ComboItem
-	var combo models.Combo
+	isInterstate := order.CustomerStateCode != "" && order.CustomerStateCode != companyinfo.CompanyStateCode
+
+	// One comboGroup per combo on the order — almost always just the
+	// primary one, but a multi-combo order (2+ different Bundle SKU Code
+	// Numbers) gets one group per combo, each rendered as its own bold
+	// section on the invoice.
+	var groups []comboGroup
 	if order.ComboID != nil {
-		items, combo, err = g.repo.GetComboItems(ctx, *order.ComboID)
+		items, combo, err := g.repo.GetComboItems(ctx, *order.ComboID)
 		if err != nil {
 			return models.Invoice{}, fmt.Errorf("get combo items: %w", err)
 		}
 		if len(items) == 0 {
 			return models.Invoice{}, fmt.Errorf("combo %d has no items", *order.ComboID)
 		}
+		groups = append(groups, newComboGroup(combo, order.ComboQuantity, items, isInterstate))
+	}
+
+	extraCombos, err := g.repo.GetOrderCombos(ctx, orderID)
+	if err != nil {
+		return models.Invoice{}, fmt.Errorf("get order combos: %w", err)
+	}
+	for _, ec := range extraCombos {
+		if len(ec.Items) == 0 {
+			return models.Invoice{}, fmt.Errorf("combo %d has no items", ec.ComboID)
+		}
+		groups = append(groups, newComboGroup(ec.Combo, ec.ComboQuantity, ec.Items, isInterstate))
 	}
 
 	extraItems, err := g.repo.GetOrderExtraItems(ctx, orderID)
 	if err != nil {
 		return models.Invoice{}, fmt.Errorf("get extra items: %w", err)
 	}
-	if order.ComboID == nil && len(extraItems) == 0 {
+	if len(groups) == 0 && len(extraItems) == 0 {
 		return models.Invoice{}, fmt.Errorf("order %d has no combo and no items", orderID)
 	}
 
-	isInterstate := order.CustomerStateCode != "" && order.CustomerStateCode != companyinfo.CompanyStateCode
-
-	lines, sumGross := buildLines(items, order.ComboQuantity)
-	discountTotal := comboDiscount(combo, sumGross)
-	applyDiscount(lines, sumGross, discountTotal, isInterstate)
-
-	// Extra (standalone) items aren't part of the combo, so no combo
+	// Extra (standalone) items aren't part of any combo, so no combo
 	// discount applies to them — sumGross/discountTotal of 0 makes
 	// applyDiscount's proportional-share branch a no-op, leaving discount=0.
 	extraLines := buildExtraLines(extraItems)
@@ -147,14 +158,16 @@ func (g *Generator) Generate(ctx context.Context, orderID int64) (models.Invoice
 	pdfPath := filepath.Join(g.invoicesDir, pdfName)
 
 	total := 0.0
-	for _, l := range lines {
-		total += l.totalAmount
+	for _, grp := range groups {
+		for _, l := range grp.lines {
+			total += l.totalAmount
+		}
 	}
 	for _, l := range extraLines {
 		total += l.totalAmount
 	}
 
-	if err := renderPDF(pdfPath, order, combo, invNo, lines, extraLines, total, isInterstate); err != nil {
+	if err := renderPDF(pdfPath, order, groups, invNo, extraLines, total, isInterstate); err != nil {
 		return models.Invoice{}, fmt.Errorf("render pdf: %w", err)
 	}
 
@@ -183,6 +196,27 @@ func buildLines(items []models.ComboItem, comboQty float64) ([]*lineItem, float6
 		})
 	}
 	return lines, sumGross
+}
+
+// comboGroup is one combo's worth of rendered line items on the invoice —
+// almost always just one (the order's primary combo), but a multi-combo
+// order carries one comboGroup per distinct Bundle SKU Code Number, each
+// with its own discount applied independently and its own bold section on
+// the invoice.
+type comboGroup struct {
+	combo    models.Combo
+	quantity float64
+	lines    []*lineItem
+}
+
+// newComboGroup builds a group's lines and applies that combo's own
+// discount to them — a discount from one combo on a multi-combo order
+// never bleeds into another combo's or into standalone extra items' totals.
+func newComboGroup(combo models.Combo, quantity float64, items []models.ComboItem, isInterstate bool) comboGroup {
+	lines, sumGross := buildLines(items, quantity)
+	discountTotal := comboDiscount(combo, sumGross)
+	applyDiscount(lines, sumGross, discountTotal, isInterstate)
+	return comboGroup{combo: combo, quantity: quantity, lines: lines}
 }
 
 // buildExtraLines builds lineItems for an order's standalone items, using
@@ -277,7 +311,7 @@ const (
 	pageRight  = pageWidth - pageMargin
 )
 
-func renderPDF(path string, order models.Order, combo models.Combo, invNo string, lines, extraLines []*lineItem, total float64, isInterstate bool) error {
+func renderPDF(path string, order models.Order, groups []comboGroup, invNo string, extraLines []*lineItem, total float64, isInterstate bool) error {
 	pdf := fpdf.New("P", "mm", "A4", "")
 	pdf.SetAutoPageBreak(false, 0)
 	pdf.AddPage()
@@ -450,19 +484,20 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 	}
 
 	// The reference invoice's Total row counts combo SETS ordered (i.e.
-	// order.ComboQuantity), not the sum of each component's own per-set
-	// quantity — a 1-set combo of 2 different components totals Qty 1, not
-	// 2. Standalone extra items are real separate order lines, so their
-	// quantities do sum normally.
+	// each group's own quantity), not the sum of each component's own
+	// per-set quantity — a 1-set combo of 2 different components totals
+	// Qty 1, not 2. Standalone extra items are real separate order lines,
+	// so their quantities do sum normally. A multi-combo order sums every
+	// group's quantity.
 	totalQty := 0.0
-	if order.ComboID != nil {
-		totalQty += order.ComboQuantity
+	for _, grp := range groups {
+		totalQty += grp.quantity
 	}
 	for _, l := range extraLines {
 		totalQty += l.qty
 	}
 
-	t1Rows, t1Bold := buildGroupedRows(combo, order, lines, extraLines, func(l *lineItem, code string) []string {
+	t1Rows, t1Bold := buildGroupedRows(groups, extraLines, func(l *lineItem, code string) []string {
 		return []string{"", l.name, code, l.hsn, fmt.Sprintf("%.0f", l.qty), money2(l.rate), money2(l.gross), "0.00", money2(l.totalAmount)}
 	})
 	t1Rows, t1Bold = appendPrepaidRow(t1Rows, t1Bold, len(t1Cols), order.PrepaidAmount)
@@ -491,14 +526,22 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 	}
 
 	totalTaxable, totalCgst, totalSgst, totalIgst := 0.0, 0.0, 0.0, 0.0
-	for _, l := range append(append([]*lineItem{}, lines...), extraLines...) {
+	for _, grp := range groups {
+		for _, l := range grp.lines {
+			totalTaxable += l.taxable
+			totalCgst += l.cgst
+			totalSgst += l.sgst
+			totalIgst += l.igst
+		}
+	}
+	for _, l := range extraLines {
 		totalTaxable += l.taxable
 		totalCgst += l.cgst
 		totalSgst += l.sgst
 		totalIgst += l.igst
 	}
 
-	t2Rows, t2Bold := buildGroupedRows(combo, order, lines, extraLines, func(l *lineItem, code string) []string {
+	t2Rows, t2Bold := buildGroupedRows(groups, extraLines, func(l *lineItem, code string) []string {
 		if isInterstate {
 			return []string{"", l.name, code, l.hsn, fmt.Sprintf("%.0f", l.qty), money2(l.taxable),
 				fmt.Sprintf("%s (%.3f%%)", money2(l.igst), l.taxRate), money2(l.totalAmount)}
@@ -517,6 +560,15 @@ func renderPDF(path string, order models.Order, combo models.Combo, invNo string
 	y = drawTable(pdf, left, y, t2Cols, t2Rows, t2Bold, totalRow2, 1, "Total:")
 
 	y += 6
+	// The amount-in-words line, the reverse-charge line, and the
+	// declaration+signature box together need roughly 50mm — if a tall
+	// table (a multi-combo order, say) left too little room on this page,
+	// start fresh rather than let any of that get cut off or overlap the
+	// footer, which is otherwise drawn at a fixed position near the bottom.
+	if y+50 > pageBreakLimit {
+		pdf.AddPage()
+		y = pageMargin
+	}
 	pdf.SetFont("Helvetica", "B", 8)
 	pdf.SetXY(left, y)
 	pdf.CellFormat(contentWidth-15, 4, "Amount Chargeable (in words)", "", 0, "L", false, 0, "")
@@ -624,41 +676,46 @@ func multiCellHeight(pdf *fpdf.Fpdf, width, lineHeight float64, text string) flo
 }
 
 // buildGroupedRows mirrors the reference invoice's bundle layout: a bold
-// combo-header row (name/code/number of sets, no money columns) followed by
-// each real combo product indented below it with its code in parentheses,
-// then any standalone extra items (e.g. a "FREE GIFT" bundled onto this
-// specific order, or — for an order with no combo at all — its only items)
-// as their own full top-level Sr rows — not indented, since they aren't
-// part of the combo.
-func buildGroupedRows(combo models.Combo, order models.Order, lines []*lineItem, extraLines []*lineItem, rowFor func(*lineItem, string) []string) ([][]string, []bool) {
+// combo-header row (name/code/number of sets, no money columns) per combo
+// group, followed by each real combo product indented below it with its
+// code in parentheses, then any standalone extra items (e.g. a "FREE GIFT"
+// bundled onto this specific order, or — for an order with no combo at all
+// — its only items) as their own full top-level Sr rows — not indented,
+// since they aren't part of any combo. A multi-combo order (2+ groups)
+// renders one bold section per combo, all sharing one continuous Sr
+// numbering sequence.
+func buildGroupedRows(groups []comboGroup, extraLines []*lineItem, rowFor func(*lineItem, string) []string) ([][]string, []bool) {
 	var rows [][]string
 	var bold []bool
-
 	sr := 1
-	if len(lines) > 0 {
-		header := rowFor(lines[0], "")
+
+	for _, grp := range groups {
+		if len(grp.lines) == 0 {
+			continue
+		}
+		header := rowFor(grp.lines[0], "")
 		blankHeader := make([]string, len(header))
-		blankHeader[0] = "1"
-		blankHeader[1] = combo.Name
-		code := combo.Code
+		blankHeader[0] = fmt.Sprintf("%d", sr)
+		blankHeader[1] = grp.combo.Name
+		code := grp.combo.Code
 		if code == "" {
 			code = "-"
 		}
 		blankHeader[2] = code
 		blankHeader[3] = ""
-		blankHeader[4] = fmt.Sprintf("%.0f", order.ComboQuantity)
+		blankHeader[4] = fmt.Sprintf("%.0f", grp.quantity)
 		for i := 5; i < len(blankHeader); i++ {
 			blankHeader[i] = ""
 		}
 		rows = append(rows, blankHeader)
 		bold = append(bold, true)
 
-		for _, l := range lines {
+		for _, l := range grp.lines {
 			row := rowFor(l, fmt.Sprintf("(%s)", l.sku))
 			rows = append(rows, row)
 			bold = append(bold, false)
 		}
-		sr = 2
+		sr++
 	}
 
 	for _, l := range extraLines {

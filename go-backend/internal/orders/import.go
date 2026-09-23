@@ -2,9 +2,11 @@
 // "Sale Order Item" report: one row PER LINE ITEM, not per order, so rows
 // sharing the same Display Order Code are grouped into a single order —
 // matching this whole pipeline's one-invoice-per-order model. Each group's
-// combo is resolved from its Bundle SKU Code Number; any row whose SKU
-// isn't part of that combo's own definition becomes a standalone extra
-// item (e.g. a free gift bundled onto that specific order).
+// combo(s) are resolved from its Bundle SKU Code Number(s) — an order
+// referencing 2+ different combo codes gets one primary combo plus one
+// models.OrderCombo per additional one; any row whose SKU isn't part of
+// any resolved combo's own definition becomes a standalone extra item
+// (e.g. a free gift bundled onto that specific order).
 package orders
 
 import (
@@ -143,14 +145,16 @@ func (r *Repository) importOneOrder(ctx context.Context, orderCode string, rows 
 		return fmt.Errorf("already imported (order id %d)", existingID)
 	}
 
-	comboCodeCounts := map[string]int{}
+	// Collect distinct combo codes in the order they first appear in the
+	// sheet — map iteration order isn't stable, and a multi-combo order
+	// needs a deterministic "first" combo to designate as primary.
+	var comboCodesInOrder []string
+	seenCode := map[string]bool{}
 	for _, row := range rows {
-		if bc := orderCell(row, col.bundleSku); bc != "" {
-			comboCodeCounts[bc]++
+		if bc := orderCell(row, col.bundleSku); bc != "" && !seenCode[bc] {
+			seenCode[bc] = true
+			comboCodesInOrder = append(comboCodesInOrder, bc)
 		}
-	}
-	if len(comboCodeCounts) > 1 {
-		return fmt.Errorf("order references %d different combo codes — multi-combo orders aren't supported yet", len(comboCodeCounts))
 	}
 
 	// Every order gets invoiced now, not just combo orders — a plain,
@@ -158,10 +162,14 @@ func (r *Repository) importOneOrder(ctx context.Context, orderCode string, rows 
 	// combo code isn't in the catalog yet) becomes an order with
 	// combo_id = nil, and every one of its line items becomes a standalone
 	// extra item instead of a combo component. Nobody's invoice gets
-	// skipped just because a combo hasn't been resolved yet.
+	// skipped just because a combo hasn't been resolved yet. An order that
+	// references 2+ *different* combo codes gets its first resolved combo
+	// as the primary (order.ComboID) and every other one as an additional
+	// models.OrderCombo — each renders as its own group on the invoice.
 	var comboIDPtr *int64
+	var extraCombos []models.OrderCombo
 	comboSKUs := map[string]bool{}
-	for c := range comboCodeCounts {
+	for _, c := range comboCodesInOrder {
 		comboID, found, err := catalogRepo.FindComboByCode(ctx, c)
 		if err != nil {
 			return fmt.Errorf("lookup combo: %w", err)
@@ -176,7 +184,11 @@ func (r *Repository) importOneOrder(ctx context.Context, orderCode string, rows 
 		for _, it := range comboItems {
 			comboSKUs[it.Product.SKU] = true
 		}
-		comboIDPtr = &comboID
+		if comboIDPtr == nil {
+			comboIDPtr = &comboID
+		} else {
+			extraCombos = append(extraCombos, models.OrderCombo{ComboID: comboID, ComboQuantity: 1})
+		}
 	}
 
 	first := rows[0]
@@ -275,7 +287,7 @@ func (r *Repository) importOneOrder(ctx context.Context, orderCode string, rows 
 		extraItems = append(extraItems, models.OrderExtraItem{ProductID: product.ID, Quantity: 1, UnitPrice: price})
 	}
 
-	id, err := r.CreateOrder(ctx, order, extraItems)
+	id, err := r.CreateOrder(ctx, order, extraItems, extraCombos)
 	if err != nil {
 		return fmt.Errorf("create order: %w", err)
 	}

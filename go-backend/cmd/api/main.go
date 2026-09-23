@@ -164,7 +164,7 @@ func (a *api) createOrder(w http.ResponseWriter, r *http.Request) {
 		PaymentModeLabel: req.PaymentModeLabel, DispatchThrough: req.DispatchThrough, AWBNo: req.AWBNo,
 		ShippingName: req.ShippingName, ShippingAddress: req.ShippingAddress, PrepaidAmount: req.PrepaidAmount,
 		ExternalInvoiceCode: req.ExternalInvoiceCode,
-	}, extraItems)
+	}, extraItems, nil)
 	if err != nil {
 		httpError(w, http.StatusBadRequest, err.Error())
 		return
@@ -214,6 +214,9 @@ func (a *api) getOrder(w http.ResponseWriter, r *http.Request) {
 	}
 	if extraItems, err := a.repo.GetOrderExtraItems(r.Context(), id); err == nil {
 		resp["extra_items"] = extraItems
+	}
+	if extraCombos, err := a.repo.GetOrderCombos(r.Context(), id); err == nil {
+		resp["extra_combos"] = extraCombos
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

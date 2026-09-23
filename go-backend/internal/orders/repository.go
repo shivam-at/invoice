@@ -22,10 +22,12 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 
 // CreateOrder inserts a new order (plus any standalone extra items, e.g.
 // free gifts, or — for an order with no combo at all — its only items —
-// see models.OrderExtraItem) in one transaction. Every order gets invoiced
-// now, combo or not; IsCMD is purely informational, decided from whether
-// the combo's code starts with "CMB" (the existing combo-SKU convention).
-func (r *Repository) CreateOrder(ctx context.Context, o models.Order, extraItems []models.OrderExtraItem) (int64, error) {
+// see models.OrderExtraItem, and any ADDITIONAL combos beyond the primary
+// one for a genuinely multi-combo order — see models.OrderCombo) in one
+// transaction. Every order gets invoiced now, combo or not; IsCMD is purely
+// informational, decided from whether the primary combo's code starts with
+// "CMB" (the existing combo-SKU convention).
+func (r *Repository) CreateOrder(ctx context.Context, o models.Order, extraItems []models.OrderExtraItem, extraCombos []models.OrderCombo) (int64, error) {
 	if o.ComboID == nil && len(extraItems) == 0 {
 		return 0, fmt.Errorf("order needs either a combo or at least one item")
 	}
@@ -82,6 +84,21 @@ func (r *Repository) CreateOrder(ctx context.Context, o models.Order, extraItems
 			INSERT INTO order_extra_items (order_id, product_id, quantity, unit_price) VALUES ($1, $2, $3, $4)
 		`, id, item.ProductID, qty, item.UnitPrice); err != nil {
 			return 0, fmt.Errorf("insert extra item: %w", err)
+		}
+	}
+
+	for _, ec := range extraCombos {
+		if ec.ComboID == 0 {
+			return 0, fmt.Errorf("extra combo requires combo_id")
+		}
+		qty := ec.ComboQuantity
+		if qty <= 0 {
+			qty = 1
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO order_combos (order_id, combo_id, combo_quantity) VALUES ($1, $2, $3)
+		`, id, ec.ComboID, qty); err != nil {
+			return 0, fmt.Errorf("insert extra combo: %w", err)
 		}
 	}
 
@@ -277,6 +294,41 @@ func (r *Repository) GetComboItems(ctx context.Context, comboID int64) ([]models
 		items = append(items, it)
 	}
 	return items, combo, nil
+}
+
+// GetOrderCombos returns the ADDITIONAL combos on a multi-combo order,
+// beyond its primary Order.ComboID, each with its own resolved components —
+// always []models.OrderCombo{}, never nil, so JSON serializes to [] rather
+// than null.
+func (r *Repository) GetOrderCombos(ctx context.Context, orderID int64) ([]models.OrderCombo, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT oc.id, oc.order_id, oc.combo_id, oc.combo_quantity FROM order_combos oc WHERE oc.order_id = $1
+	`, orderID)
+	if err != nil {
+		return nil, err
+	}
+	var refs []models.OrderCombo
+	for rows.Next() {
+		var oc models.OrderCombo
+		if err := rows.Scan(&oc.ID, &oc.OrderID, &oc.ComboID, &oc.ComboQuantity); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		refs = append(refs, oc)
+	}
+	rows.Close()
+
+	out := []models.OrderCombo{}
+	for _, oc := range refs {
+		items, combo, err := r.GetComboItems(ctx, oc.ComboID)
+		if err != nil {
+			return nil, fmt.Errorf("order combo %d: %w", oc.ID, err)
+		}
+		oc.Combo = combo
+		oc.Items = items
+		out = append(out, oc)
+	}
+	return out, nil
 }
 
 // CreateInvoiceIfAbsent is the DB-level idempotency backstop: ON CONFLICT DO
