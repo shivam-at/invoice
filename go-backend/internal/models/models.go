@@ -34,11 +34,11 @@ type ComboItem struct {
 // OrderCombo row. Each renders as its own bold group on the invoice, same
 // as the primary combo.
 type OrderCombo struct {
-	ID            int64   `json:"id"`
-	OrderID       int64   `json:"order_id"`
-	ComboID       int64   `json:"combo_id"`
-	ComboQuantity float64 `json:"combo_quantity"`
-	Combo         Combo   `json:"combo"`
+	ID            int64       `json:"id"`
+	OrderID       int64       `json:"order_id"`
+	ComboID       int64       `json:"combo_id"`
+	ComboQuantity float64     `json:"combo_quantity"`
+	Combo         Combo       `json:"combo"`
 	Items         []ComboItem `json:"items"`
 }
 

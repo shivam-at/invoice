@@ -329,7 +329,7 @@ var stateNameToCode = map[string]string{
 	"gujarat":        "24",
 	"daman and diu":  "25", "daman & diu": "25",
 	"dadra and nagar haveli and daman and diu": "26", // post-2020 merged UT
-	"dadra and nagar haveli": "26", "dadra & nagar haveli": "26",
+	"dadra and nagar haveli":                   "26", "dadra & nagar haveli": "26",
 	"maharashtra":    "27",
 	"andhra pradesh": "37",
 	"karnataka":      "29",
